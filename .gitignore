@@ -154,6 +154,9 @@ test.dart
 docs/*
 !docs/danmaku_font_scaling.md
 !docs/inapp_pip_implementation.md
+!docs/high-quality-stream-handoff.md
+!docs/high-quality-stream-handoff-code.md
+!docs/high-quality-stream-handoff.patch
 test*.dart
 
 AGENTS.md

@@ -1,3 +1,4 @@
+import 'package:PiliPlus/http/bili_media_headers.dart';
 import 'package:PiliPlus/models/common/video/audio_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
@@ -88,6 +89,13 @@ abstract final class VideoUtils {
     customHost ??= applyCustomCDN ? customCDNUrl : null;
     if (isAudio && disableAudioCDN) {
       customHost = null;
+    }
+
+    // APP 通道（platform=android）签发的直链，签名（upsig/uparams）与 host 绑定，
+    // 换任何 host 都会 403；且这些 PCDN/回源节点本身可用（只要请求不带 Referer）。
+    // 因此原样返回，不做任何 CDN 替换。
+    if (urls.isNotEmpty && BiliMediaHeaders.isAndroidPlatformUrl(urls.first)) {
+      return urls.first;
     }
 
     if (customHost == null && defaultCDNService == CDNService.baseUrl) {

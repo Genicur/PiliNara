@@ -10,10 +10,13 @@ import 'package:PiliPlus/common/widgets/image_grid/image_grid_view.dart'
     show ImageGridView, ImageModel;
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models/common/dm_chart_source.dart';
 import 'package:PiliPlus/models/common/sponsor_block/skip_type.dart';
 import 'package:PiliPlus/pages/common/slide/common_slide_page.dart';
 import 'package:PiliPlus/pages/home/controller.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
+import 'package:PiliPlus/pages/setting/pages/danmaku_merge_setting.dart';
+import 'package:PiliPlus/pages/setting/reply_setting.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -130,6 +133,13 @@ List<SettingsModel> get extraSettings => [
     needReboot: true,
   ),
   const SwitchModel(
+    title: '显示视频推荐理由',
+    subtitle: '显示首页视频卡片下方的已关注，x万点赞的标签',
+    leading: Icon(Icons.label_outline),
+    setKey: SettingBoxKey.showRcmdReason,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '搜索建议',
     leading: Icon(Icons.search),
     setKey: SettingBoxKey.searchSuggestion,
@@ -139,13 +149,6 @@ List<SettingsModel> get extraSettings => [
     title: '记录搜索历史',
     leading: Icon(Icons.history),
     setKey: SettingBoxKey.recordSearchHistory,
-    defaultVal: true,
-  ),
-  const SwitchModel(
-    title: '显示视频推荐理由',
-    subtitle: '显示首页视频卡片下方的已关注，x万点赞的标签',
-    leading: Icon(Icons.label_outline),
-    setKey: SettingBoxKey.showRcmdReason,
     defaultVal: true,
   ),
   SwitchModel(
@@ -630,3 +633,4 @@ void _showCacheDialog(BuildContext context, VoidCallback setState) {
     ),
   );
 }
+

@@ -124,6 +124,8 @@ abstract final class ReplyGrpc {
         reply.content.atNameToMid.length >= blockReplyAtCount!;
   }
 
+  /// 统一屏蔽入口。fork 的白名单优先于一切规则；上游新增的
+  /// `blockAtOnlyReply` / `blockReplyAtCount` 规则并入原有判定链。
   static bool needRemoveGrpc(
     ReplyInfo reply, {
     Int64? upMid,
@@ -135,14 +137,14 @@ abstract final class ReplyGrpc {
     // fork 白名单优先于一切屏蔽规则（含全局黑名单）
     if (UserWhitelist.contains(mid)) return false;
     if (GlobalData().blackMids.contains(mid)) return true;
-    if (_blockReplyAtCount(reply)) return true;
-    if (_blockAtOnlyReply(reply)) return true;
     if (antiGoodsReply && _needRemoveGoodGrpc(reply)) return true;
     final replyControl = reply.replyControl;
     if (keepUpOwnerReply && upMid != null && reply.mid == upMid) return false;
     if (keepUpTopReply && replyControl.isUpTop) return false;
     if (keepUpLikeReply && replyControl.upLike) return false;
     if (keepUpReplyReply && replyControl.upReply) return false;
+    if (_blockReplyAtCount(reply)) return true;
+    if (_blockAtOnlyReply(reply)) return true;
     return (replyMinLevel > 0 && reply.member.level.toInt() < replyMinLevel) ||
         (enableFilter && replyRegExp.hasMatch(reply.content.message));
   }

@@ -25,6 +25,7 @@ abstract final class FontUtils {
   static final _fonts = <String>{};
   static bool _initialized = false;
 
+  static const kFontName = 'customFont.otf';
   static const _kFontExts = ['ttf', 'ttc', 'otf'];
   static final _kFontDir = path.join(appSupportDirPath, 'font');
 
@@ -49,32 +50,6 @@ abstract final class FontUtils {
   /// 该字体名是否指向已导入的字体（而非系统字体）
   static bool isCustomFont(String? fontFamily) =>
       fontFamily != null && customFonts.containsKey(fontFamily);
-
-  /// 文件名是否为支持的字体文件
-  static bool isSupportedFontFile(String fileName) =>
-      _kFontExts.contains(path.extension(fileName).replaceFirst('.', ''));
-
-  /// 当前应用字体对应的字体文件；未选用导入字体或文件已丢失时返回 null
-  static File? get activeFontFile {
-    final filePath = customFonts[Pref.appFont];
-    if (filePath == null) return null;
-    final file = File(filePath);
-    return file.existsSync() ? file : null;
-  }
-
-  /// 把外部字体文件装入导入池并登记，返回字体族名。
-  ///
-  /// 供配置归档导入使用：导入后由调用方决定是否把 [Pref.appFont] 指向它。
-  static Future<String?> adoptFontFile(
-    String filePath, {
-    String? displayName,
-  }) async {
-    final family = await _adoptLegacyFont(filePath, displayName);
-    if (family != null) {
-      await _saveFonts();
-    }
-    return family;
-  }
 
   static Future<void> _saveFonts() => GStorage.setting.putAll({
     SettingBoxKey.customAppFont: customFonts,
@@ -259,12 +234,21 @@ abstract final class FontUtils {
   /// 取内容哈希前 16 位十六进制：足够防碰撞，又不会让族名过长
   static Future<String?> _hashFile(File file) async {
     try {
-      final digest = await sha1.bind(file.openRead()).first;
-      return digest.toString().substring(0, 16);
+      return await hashBytes(await file.readAsBytes());
     } catch (_) {
       return null;
     }
   }
+
+  /// 计算字体内容的短哈希（用作导入池中的族名后缀）。
+  /// 配置归档导入字体文件时复用同一套命名，保证与正常导入的字体互通。
+  static Future<String> hashBytes(List<int> bytes) async {
+    final digest = await sha1.bind(Stream.value(bytes)).first;
+    return digest.toString().substring(0, 16);
+  }
+
+  /// 字体族名 → 显示名的映射（配置归档导入时需要写入）。
+  static Map<String, String> get customFontNames => _customFontNames;
 
   static String _extensionOf(String fileName) {
     final ext = path.extension(fileName).toLowerCase();

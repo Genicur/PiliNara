@@ -716,6 +716,11 @@ abstract final class Pref {
   static bool get cdnSpeedTest =>
       _setting.get(SettingBoxKey.cdnSpeedTest, defaultValue: true);
 
+  /// 「无限试用会员画质」：开启后 UGC 视频优先走 APP gRPC PlayView 通道，
+  /// 可拿到 4K/1080P+/HDR/8K；关闭则完全走上游 Web playurl（非大会员最高 1080P）。
+  static bool get unlimitedVipQuality =>
+      _setting.get(SettingBoxKey.unlimitedVipQuality, defaultValue: true);
+
   static bool get autoUpdate =>
       _setting.get(SettingBoxKey.autoUpdate, defaultValue: true);
 

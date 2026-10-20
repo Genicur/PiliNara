@@ -95,10 +95,6 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> skipToNext() async {
-    final playOwner = PlPlayerController.playOwner;
-    if (playOwner != null && playOwner.type == null) {
-      return;
-    }
     if (onSkipToNext != null) {
       onSkipToNext?.call();
       return;
@@ -130,10 +126,6 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> skipToPrevious() async {
-    final playOwner = PlPlayerController.playOwner;
-    if (playOwner != null && playOwner.type == null) {
-      return;
-    }
     if (onSkipToPrevious != null) {
       onSkipToPrevious?.call();
       return;
@@ -178,25 +170,18 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
 
   CommonIntroController? _findIntroController() {
     final playOwner = PlPlayerController.playOwner;
-    if (playOwner == null) {
-      return null;
-    }
-
-    final type = playOwner.type;
-    if (type == null) {
-      return null;
-    }
-
-    final tag = playOwner.tag;
-    try {
-      return switch (type) {
-        UgcIntroController => Get.find<UgcIntroController>(tag: tag),
-        PgcIntroController => Get.find<PgcIntroController>(tag: tag),
-        LocalIntroController => Get.find<LocalIntroController>(tag: tag),
-        _ => throw UnimplementedError(type.toString()),
-      };
-    } catch (_) {
-      if (kDebugMode) rethrow;
+    if (playOwner != null) {
+      final tag = playOwner.tag;
+      try {
+        return switch (playOwner.type) {
+          UgcIntroController => Get.find<UgcIntroController>(tag: tag),
+          PgcIntroController => Get.find<PgcIntroController>(tag: tag),
+          LocalIntroController => Get.find<LocalIntroController>(tag: tag),
+          _ => throw UnimplementedError(playOwner.type.toString()),
+        };
+      } catch (_) {
+        if (kDebugMode) rethrow;
+      }
     }
     return null;
   }

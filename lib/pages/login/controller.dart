@@ -35,11 +35,18 @@ class LoginPageController extends GetxController
   late final codeInfo =
       LoadingState<({String authCode, String url})>.loading().obs;
 
+  /// 手机端扫码（`mobi_app=android` + 手机端 appkey）的状态。
+  /// 只有手机端 token 才能在 APP 端 PlayView 拿到 4K / 1080P+ 的 dash 流。
+  late final phoneCodeInfo =
+      LoadingState<({String authCode, String url})>.loading().obs;
+
   late final TabController tabController;
 
   late final CaptchaDataModel captchaData = CaptchaDataModel();
   late final RxInt qrCodeLeftTime = 180.obs;
   late final RxString statusQRCode = ''.obs;
+  late final RxInt phoneQrCodeLeftTime = 180.obs;
+  late final RxString phoneStatusQRCode = ''.obs;
 
   late var selectedCountryCodeId = Login.dialPrefix.first;
   late String captchaKey = '';
@@ -48,9 +55,11 @@ class LoginPageController extends GetxController
 
   // 定时器
   Timer? qrCodeTimer;
+  Timer? phoneQrCodeTimer;
   Timer? smsSendCooldownTimer;
 
   bool _isReq = false;
+  bool _isPhoneReq = false;
   bool _isImportingWebLogin = false;
 
   static const Set<String> _requiredWebLoginCookies = {
@@ -62,7 +71,7 @@ class LoginPageController extends GetxController
   @override
   void onInit() {
     super.onInit();
-    tabController = TabController(length: 4, vsync: this)
+    tabController = TabController(length: 5, vsync: this)
       ..addListener(_handleTabChange);
   }
 
@@ -72,6 +81,7 @@ class LoginPageController extends GetxController
       ..removeListener(_handleTabChange)
       ..dispose();
     qrCodeTimer?.cancel();
+    phoneQrCodeTimer?.cancel();
     smsSendCooldownTimer?.cancel();
     telTextController.dispose();
     usernameTextController.dispose();
@@ -119,10 +129,56 @@ class LoginPageController extends GetxController
     }
   }
 
+  /// 手机端扫码：拿到的 access_token 才能在 APP 端 PlayView 拿到 4K。
+  Future<void> refreshPhoneQRCode() async {
+    final res = await LoginHttp.getPhoneCode();
+    if (res case Success(:final response)) {
+      phoneQrCodeTimer?.cancel();
+      phoneCodeInfo.value = res;
+      phoneQrCodeTimer = Timer.periodic(
+        const Duration(milliseconds: 1000),
+        (t) {
+          final left = 180 - t.tick;
+          if (left <= 0) {
+            t.cancel();
+            phoneStatusQRCode.value = '二维码已过期，请刷新';
+            phoneQrCodeLeftTime.value = 0;
+            return;
+          }
+          phoneQrCodeLeftTime.value = left;
+          if (_isPhoneReq || tabController.index != 3) return;
+
+          _isPhoneReq = true;
+          LoginHttp.codePoll(response.authCode, phone: true).then((value) async {
+            _isPhoneReq = false;
+            if (value['status']) {
+              t.cancel();
+              phoneStatusQRCode.value = '扫码成功';
+              await setAccount(
+                value['data'],
+                value['data']['cookie_info']['cookies'],
+              );
+              Get.back();
+            } else if (value['code'] == 86038) {
+              t.cancel();
+              phoneQrCodeLeftTime.value = 0;
+            } else {
+              phoneStatusQRCode.value = value['msg'];
+            }
+          });
+        },
+      );
+    }
+  }
+
   void _handleTabChange() {
     if (tabController.index == 2) {
       if (qrCodeTimer == null || !qrCodeTimer!.isActive) {
         refreshQRCode();
+      }
+    } else if (tabController.index == 3) {
+      if (phoneQrCodeTimer == null || !phoneQrCodeTimer!.isActive) {
+        refreshPhoneQRCode();
       }
     }
   }
@@ -766,6 +822,16 @@ class LoginPageController extends GetxController
   }
 
   Future<void> _saveAccount(LoginAccount account) async {
+    // 同一 mid 重新登录（典型场景：先用 Cookie 导入登录，再用手机扫码登录以
+    // 拿到 access_token）时，新 account 的 type 是空集合。若直接替换槽位，
+    // hive 里会存下 `type: []`，下次启动 Accounts.refresh() 就恢复不出这个
+    // 账号，表现为「登录掉了」。这里把被替换账号所占的槽位补回新账号。
+    final types = <AccountType>{
+      for (int i = 0; i < AccountType.values.length; i++)
+        if (Accounts.accountMode[i].mid == account.mid) AccountType.values[i],
+    };
+    account.type.addAll(types);
+
     await Future.wait([?account.onChange(), AnonymousAccount().delete()]);
     for (int i = 0; i < AccountType.values.length; i++) {
       if (Accounts.accountMode[i].mid == account.mid) {

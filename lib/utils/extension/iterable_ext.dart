@@ -43,14 +43,6 @@ extension ListExt<T> on List<T> {
     return List<R>.from(this);
   }
 
-  /// 取满足 [test] 的最大项；没有满足项时回落到全体最大值（fork 半屏画质规则用）
-  T findClosestTarget(
-    bool Function(T) test,
-    T Function(T, T) combine,
-  ) {
-    return where(test).reduceOrNull(combine) ?? reduce(combine);
-  }
-
   T findTargetMedia(
     int Function(T) test,
     int preferId,
@@ -71,6 +63,16 @@ extension ListExt<T> on List<T> {
       }
     }
     return selected ?? lowest ?? first;
+  }
+
+  /// fork 侧的全屏画质选择：取满足 [test] 的最大元素（≤ 目标画质里最高的那个）。
+  /// 上游把同名旧方法改成了 [findTargetMedia]（按 id 取最接近），两者语义不同，
+  /// 因此保留这个独立实现供 `lib/pages/video/controller.dart` 使用。
+  T findClosestTarget(
+    bool Function(T) test,
+    T Function(T, T) combine,
+  ) {
+    return where(test).reduceOrNull(combine) ?? reduce(combine);
   }
 
   /// from [algorithms.lowerBoundBy].

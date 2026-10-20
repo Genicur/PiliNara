@@ -58,7 +58,12 @@ class AccountManager extends Interceptor {
     final isApp = path.startsWith(HttpString.appBaseUrl);
 
     if (isApp && options.responseType == ResponseType.bytes) {
-      options.headers.addAll(account.grpcHeaders);
+      // 允许单个 gRPC 请求覆盖指纹（如 PlayView 需要手机端 android 指纹）
+      if (options.extra['grpcHeaders'] case final Map<String, String> headers) {
+        options.headers.addAll(headers);
+      } else {
+        options.headers.addAll(account.grpcHeaders);
+      }
       return handler.next(options);
     }
 

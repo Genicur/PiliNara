@@ -5,6 +5,7 @@ import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/assets.dart';
+import 'package:PiliPlus/http/bili_media_headers.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -1229,6 +1230,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       player.setProperty('force-window', 'no');
     }
 
+    // 默认按 Web 通道直链配置；真正的取值在 _createVideoController 里按
+    // 每条直链的来源（APP / Web）重新设置，见 BiliMediaHeaders。
     player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
 
     _startListeners(player);
@@ -1276,6 +1279,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       else
         ...buffer,
     };
+
+    if (dataSource is NetworkSource && !isLive) {
+      // APP 通道直链（query 里 platform=android）带 Referer 会被 CDN 直接 403，
+      // 且不能用桌面浏览器 UA；Web 通道直链则必须带 Referer。见 BiliMediaHeaders。
+      final (ua, referer) = BiliMediaHeaders.forPlayer(
+        dataSource.videoSource,
+      );
+      player.setMediaHeader(userAgent: ua, referer: referer);
+    } else {
+      // 直播 / 本地文件沿用原有默认值。必须显式重设，否则会残留上一条
+      // APP 直链留下的空 Referer（mpv 的 referrer 是播放器级状态）。
+      player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
+    }
 
     String video = dataSource.videoSource;
     if (dataSource.audioSource case final audio? when (audio.isNotEmpty)) {

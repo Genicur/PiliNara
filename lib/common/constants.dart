@@ -9,6 +9,19 @@ abstract final class Constants {
   static const String appKey = 'dfca71928277209b';
   // 59b43e04ad6965f34319062b478f83dd TV端
   static const String appSec = 'b5475a8825547a4fc26c7d518eaaa02e';
+  /// 手机端 Android appkey/secret（同 BBDown 的 PhoneAppKey/PhoneAppSecret）。
+  /// 只有手机端签发的 access_token 才能在 PlayView 拿到 4K / 1080P+ 的 dash 流。
+  static const String phoneAppKey = '783bbb7264451d82';
+  static const String phoneAppSec = '2653583c8873dea268ab9386918b1d65';
+
+  /// PlayView 需要的手机端指纹：mobi_app=android 且 build>=6400000。
+  /// HD 端（android_hd / build 2001100）服务端只下发 480P/360P 的 dashVideo。
+  static const String playViewMobiApp = 'android';
+  static const int playViewBuild = 7320200;
+  static const String playViewVersionName = '7.32.0';
+  static const String playViewUserAgent =
+      'Mozilla/5.0 BiliDroid/7.32.0 (bbcallen@gmail.com) os/android model/android mobi_app/android build/7320200 channel/master innerVer/7320200 osVer/15 network/2';
+
   // static const String thirdSign = '04224646d1fea004e79606d3b038c84a';
   // static const String thirdApi =
   //     'https://www.mcbbs.net/template/mcbbs/image/special_photo_bg.png';

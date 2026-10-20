@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pb.dart' show PlayViewReply;
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pbenum.dart' show CodeType;
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show ReplyInfo;
+import 'package:PiliPlus/grpc/playurl.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
@@ -10,11 +13,13 @@ import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
+import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/pgc_lcf.dart';
+import 'package:PiliPlus/models/video/play/playview_convert.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_rank/pgc_rank_item_model.dart';
 import 'package:PiliPlus/models_new/popular/popular_precious/data.dart';
@@ -244,6 +249,20 @@ abstract final class VideoHttp {
     String? language,
     bool voiceBalance = false,
   }) async {
+    // UGC 视频优先走 APP 端 gRPC PlayView：只有这条通道能拿到 4K / 1080P+ 的
+    // dash 直链（Web 端 x/player/wbi/playurl 对非大会员硬性封顶 1080P）。
+    // 失败（未登录 / 没有手机端 access_key / 接口异常）时静默回退 Web 通道。
+    // 带 epid/seasonId 的走番剧（pgc）逻辑，这里不接管。
+    // R9：「无限试用会员画质」开关关闭时完全跳过硬 APP 通道（一次 PlayView 都不发），
+    // 干净地回到上游 Web 逻辑。
+    if (Pref.unlimitedVipQuality &&
+        videoType == .ugc &&
+        epid == null &&
+        seasonId == null) {
+      final appRes = await _videoUrlByApp(avid: avid, bvid: bvid, cid: cid);
+      if (appRes != null) return appRes;
+    }
+
     final Map<String, dynamic> params;
     Map<String, dynamic>? data;
 
@@ -356,6 +375,79 @@ abstract final class VideoHttp {
     } catch (e, s) {
       return Error('$e\n\n$s');
     }
+  }
+
+  /// 走 APP 端 gRPC PlayView 取流（可拿到 4K / 1080P+）。
+  ///
+  /// 需要手机端 access_token：`authorization: identify_v1 <token>` 加上
+  /// `mobi_app=android & build>=6400000` 的指纹，服务端才会下发 4K 的 dashVideo。
+  /// 任一条件不满足时返回 null，由调用方回退 Web 通道。
+  static Future<Success<PlayUrlModel>?> _videoUrlByApp({
+    int? avid,
+    String? bvid,
+    required int cid,
+  }) async {
+    final accessKey = Accounts.video.accessKey;
+    if (accessKey == null || accessKey.isEmpty) return null;
+
+    final int? aid = avid ?? (bvid != null ? IdUtils.bv2av(bvid) : null);
+    if (aid == null || aid <= 0) return null;
+
+    try {
+      final preferCodecType = _preferCodecType;
+      final res = await PlayUrlGrpc.playView(
+        aid: aid,
+        cid: cid,
+        preferCodecType: preferCodecType,
+        accessKey: accessKey,
+      );
+      if (res case Success(:final response)) {
+        final replies = <PlayViewReply>[response];
+
+        // HDR Vivid(129) / HDR 真彩(125) / 杜比视界(126) / 8K(127) 只以 HEVC 或
+        // AV1 下发：首选 AVC 时这些档位只有 StreamInfo、没有 DashVideo。
+        // 检测到有档位缺流就再发一次 HEVC 请求，把两次结果合并，
+        // 让 UI 能列出并播放这些档位（对齐 BBDown 的 APP 通道能力）。
+        if (PlayViewConverter.missingDashQualities(response).isNotEmpty) {
+          final fallbackCodec = preferCodecType == CodeType.CODE265
+              ? CodeType.CODEAV1
+              : CodeType.CODE265;
+          final fallback = await PlayUrlGrpc.playView(
+            aid: aid,
+            cid: cid,
+            preferCodecType: fallbackCodec,
+            accessKey: accessKey,
+          );
+          if (fallback case Success(:final response)) {
+            replies.add(response);
+          }
+        }
+
+        final model = PlayViewConverter.toPlayUrlModelFromReplies(replies);
+        if (model != null && model.dash?.video?.isNotEmpty == true) {
+          // 服务端按 token 来源决定下发哪些档位：HD 端（`mobi_app=android_hd`
+          // 签发的 token）只会给到 480P/360P。这种结果不能接管，否则会把原本
+          // 能用 Web 通道看 1080P 的用户降级成 480P。低于 1080P 就回退 Web。
+          final topQuality = model.dash!.video!.first.quality.code;
+          if (topQuality >= VideoQuality.high1080.code) {
+            return Success(model);
+          }
+        }
+      }
+    } catch (_) {
+      // 静默回退 Web 通道
+    }
+    return null;
+  }
+
+  static CodeType get _preferCodecType {
+    final codecs = Pref.preferCodecs;
+    if (codecs.isEmpty) return CodeType.CODE265;
+    return switch (codecs.first) {
+      .AVC => CodeType.CODE264,
+      .AV1 => CodeType.CODEAV1,
+      _ => CodeType.CODE265,
+    };
   }
 
   static String _parseVideoErr(int? code, String? msg) {

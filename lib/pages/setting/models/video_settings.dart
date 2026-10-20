@@ -77,6 +77,15 @@ List<SettingsModel> get videoSettings => [
     setKey: SettingBoxKey.cdnSpeedTest,
     defaultVal: true,
   ),
+  const SwitchModel(
+    title: '无限试用会员画质',
+    leading: Icon(Icons.workspace_premium_outlined),
+    subtitle:
+        '通过 APP 端接口获取 4K/1080P+/HDR/8K 视频流，'
+        '非大会员账号也可使用；关闭后使用官方 Web 接口（非大会员最高 1080P）',
+    setKey: SettingBoxKey.unlimitedVipQuality,
+    defaultVal: true,
+  ),
   SwitchModel(
     title: '音频不跟随 CDN 设置',
     subtitle: '直接采用备用 URL，可解决部分视频无声',

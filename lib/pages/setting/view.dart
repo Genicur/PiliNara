@@ -7,8 +7,6 @@ import 'package:PiliPlus/models/common/setting_type.dart';
 import 'package:PiliPlus/pages/about/view.dart';
 import 'package:PiliPlus/pages/login/controller.dart';
 import 'package:PiliPlus/pages/setting/common_setting.dart';
-import 'package:PiliPlus/pages/setting/dynamics_setting.dart';
-import 'package:PiliPlus/pages/setting/reply_setting.dart';
 import 'package:PiliPlus/pages/setting/widgets/multi_select_dialog.dart';
 import 'package:PiliPlus/pages/webdav/view.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -57,12 +55,14 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.explore_outlined),
     ),
     _SettingsModel(
-      type: .dynamicsSetting,
-      subtitle: '动态展示、关键词过滤、屏蔽用户、带货动态屏蔽',
+      // fork 保留的「动态流设置」入口（与上游 dynSetting 并行的独立结构，
+      // 由 models/dynamics_settings.dart 提供内容，不要删除）
+      type: SettingType.dynamicsSetting,
+      subtitle: '关键词过滤、屏蔽用户、带货动态屏蔽',
       icon: Icon(Icons.dynamic_feed_outlined),
     ),
     _SettingsModel(
-      type: .videoSetting,
+      type: SettingType.videoSetting,
       subtitle: '画质、音质、解码、缓冲、音频输出等',
       icon: Icon(Icons.video_settings_outlined),
     ),
@@ -78,8 +78,13 @@ class _SettingPageState extends State<SettingPage> {
     ),
     _SettingsModel(
       type: .replySetting,
-      subtitle: '评论展示、过滤、屏蔽、记录等',
+      subtitle: '过滤、屏蔽、记录、默认展示等',
       icon: Icon(Icons.comment_outlined),
+    ),
+    _SettingsModel(
+      type: .dynSetting,
+      subtitle: '过滤、屏蔽、默认展示等',
+      icon: Icon(CustomIcons.motion_photos_on_outlined),
     ),
     _SettingsModel(
       type: .styleSetting,
@@ -87,8 +92,8 @@ class _SettingPageState extends State<SettingPage> {
       icon: Icon(Icons.style_outlined),
     ),
     _SettingsModel(
-      type: .extraSetting,
-      subtitle: '震动、搜索、收藏、ai、代理、更新检查等',
+      type: SettingType.extraSetting,
+      subtitle: '震动、搜索、收藏、ai、评论、动态、代理、更新检查等',
       icon: Icon(Icons.extension_outlined),
     ),
     _SettingsModel(
@@ -132,22 +137,11 @@ class _SettingPageState extends State<SettingPage> {
                   Expanded(
                     flex: 6,
                     child: switch (_type) {
-                      .dynamicsSetting => const DynamicsSetting(showAppBar: false),
-                      .replySetting => const ReplySetting(showAppBar: false),
-                      .privacySetting ||
-                      .recommendSetting ||
-                      .videoSetting ||
-                      .playSetting ||
-                      .dmSetting ||
-                      .styleSetting ||
-                      .extraSetting => CommonSetting(
-                        settingType: _type,
-                        showAppBar: false,
-                      ),
                       .webdavSetting => const WebDavSettingPage(
                         showAppBar: false,
                       ),
                       .about => const AboutPage(showAppBar: false),
+                      _ => CommonSetting(settingType: _type, showAppBar: false),
                     },
                   ),
                 ],
@@ -166,17 +160,9 @@ class _SettingPageState extends State<SettingPage> {
     if (_isPortrait) {
       Get.to(
         () => switch (type) {
-          .dynamicsSetting => const DynamicsSetting(),
-          .replySetting => const ReplySetting(),
-          .privacySetting ||
-          .recommendSetting ||
-          .videoSetting ||
-          .playSetting ||
-          .dmSetting ||
-          .styleSetting ||
-          .extraSetting => CommonSetting(settingType: type),
           .webdavSetting => const WebDavSettingPage(),
           .about => const AboutPage(),
+          _ => CommonSetting(settingType: type),
         },
       );
     } else {

@@ -57,13 +57,26 @@ List<SettingsModel> get videoSettings => [
       ),
     ),
   ),
-  NormalModel(
-    title: 'CDN 设置',
-    leading: const Icon(MdiIcons.cloudPlusOutline),
-    getSubtitle: () =>
-        '当前使用：${VideoUtils.effectiveCdnDesc()}，部分 CDN 可能失效，如无法播放请尝试切换',
-    onTap: _showCDNDialog,
-  ),
+  // 【会员试用开启时不显示 CDN 相关设置】
+  // APP 通道直链的签名与节点绑定，换 host 会 403，取流时已跳过 CDN 替换；
+  // 若仍展示这些设置，用户会误以为生效（实际不会），故直接隐藏。
+  // 关闭「无限试用会员画质」后恢复可见并照常工作。
+  if (!Pref.unlimitedVipQuality) ...[
+    NormalModel(
+      title: 'CDN 设置',
+      leading: const Icon(MdiIcons.cloudPlusOutline),
+      getSubtitle: () =>
+          '当前使用：${VideoUtils.effectiveCdnDesc()}，部分 CDN 可能失效，如无法播放请尝试切换',
+      onTap: _showCDNDialog,
+    ),
+    const SwitchModel(
+      title: 'CDN 测速',
+      leading: Icon(Icons.speed),
+      subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
+      setKey: SettingBoxKey.cdnSpeedTest,
+      defaultVal: true,
+    ),
+  ],
   NormalModel(
     title: '直播 CDN 设置',
     leading: const Icon(MdiIcons.cloudPlusOutline),
@@ -71,29 +84,23 @@ List<SettingsModel> get videoSettings => [
     onTap: _showLiveCDNDialog,
   ),
   const SwitchModel(
-    title: 'CDN 测速',
-    leading: Icon(Icons.speed),
-    subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
-    setKey: SettingBoxKey.cdnSpeedTest,
-    defaultVal: true,
-  ),
-  const SwitchModel(
     title: '无限试用会员画质',
     leading: Icon(Icons.workspace_premium_outlined),
     subtitle:
         '通过 APP 端接口获取 4K/1080P+/HDR/8K 视频流，'
-        '非大会员账号也可使用；关闭后使用官方 Web 接口（非大会员最高 1080P）',
+        '非大会员账号也可使用；开启时 CDN 设置不生效（直链签名与节点绑定）',
     setKey: SettingBoxKey.unlimitedVipQuality,
     defaultVal: true,
   ),
-  SwitchModel(
-    title: '音频不跟随 CDN 设置',
-    subtitle: '直接采用备用 URL，可解决部分视频无声',
-    leading: const Icon(MdiIcons.musicNotePlus),
-    setKey: SettingBoxKey.disableAudioCDN,
-    defaultVal: false,
-    onChanged: (value) => VideoUtils.disableAudioCDN = value,
-  ),
+  if (!Pref.unlimitedVipQuality)
+    SwitchModel(
+      title: '音频不跟随 CDN 设置',
+      subtitle: '直接采用备用 URL，可解决部分视频无声',
+      leading: const Icon(MdiIcons.musicNotePlus),
+      setKey: SettingBoxKey.disableAudioCDN,
+      defaultVal: false,
+      onChanged: (value) => VideoUtils.disableAudioCDN = value,
+    ),
   if (Platform.isAndroid || Platform.isIOS)
     NormalModel(
       title: '半屏默认画质',

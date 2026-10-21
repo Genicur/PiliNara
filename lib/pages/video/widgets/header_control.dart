@@ -611,7 +611,10 @@ class HeaderControlState extends State<HeaderControl>
                         ),
                       ),
                     ),
-                if (!isFileSource)
+                // 会员试用开启时取流走 APP 通道，CDN 替换必然破坏签名
+                // （直链签名与节点绑定 → 换 host 会 403），此时隐藏入口，
+                // 避免用户切了 CDN 却无法播放。关闭试用后恢复显示。
+                if (!isFileSource && !Pref.unlimitedVipQuality)
                   ListTile(
                     dense: true,
                     title: const Text('CDN 设置', style: titleStyle),

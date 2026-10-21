@@ -8,7 +8,6 @@ import 'package:PiliPlus/models_new/live/live_room_play_info/codec.dart';
 import 'package:PiliPlus/utils/cdn_node_store.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
 abstract final class VideoUtils {
@@ -134,98 +133,6 @@ abstract final class VideoUtils {
     return _replaceHost(Uri.parse(picked), serviceHost).toString();
   }
 
-  /// 取流的候选 URL 队列：按优先级依次尝试，最后一个必定是「原始直链」。
-  ///
-  /// 用户要求：「先做轮询，都不行再回到原始直链」。播放器在首个地址失败时
-  /// 会从这里取下一个候选，全部失败则回落到服务端下发的原始地址，
-  /// 避免因为选了不可用 CDN 而卡住、需要手动切换。
-  static List<String> cdnCandidates(
-    Iterable<String> urls, {
-    CDNService? defaultCDNService,
-    bool isAudio = false,
-  }) {
-    final list = urls.toList(growable: false);
-    if (list.isEmpty) return const [];
-    final primary = getCdnUrl(
-      list,
-      defaultCDNService: defaultCDNService,
-      isAudio: isAudio,
-    );
-    final result = <String>[];
-    void add(String u) {
-      if (u.isNotEmpty && !result.contains(u)) result.add(u);
-    }
-
-    add(primary);
-    // 其余原始直链作为次选（B 站下发的 backupUrl 往往就是可用备用节点）
-    for (final u in list) {
-      add(u);
-    }
-    return result;
-  }
-
-  /// 单个地址是否可出数据（Range: bytes=0-0 轻量请求，只读 1 字节）。
-  ///
-  /// 请求头按直链来源选用 [BiliMediaHeaders.forPlayer]，避免因 Referer/UA
-  /// 不对而把可用节点误判为不可用。
-  static Future<bool> isUrlReachable(
-    String url, {
-    Duration timeout = const Duration(seconds: 5),
-  }) async {
-    if (url.isEmpty) return false;
-    final dio = Dio(
-      BaseOptions(
-        connectTimeout: timeout,
-        receiveTimeout: timeout,
-        validateStatus: (s) => s != null && s < 400,
-      ),
-    );
-    try {
-      final (ua, referer) = BiliMediaHeaders.forPlayer(url);
-      await dio.get<void>(
-        url,
-        options: Options(
-          headers: {
-            'user-agent': ua,
-            if (referer.isNotEmpty) 'referer': referer,
-            'Range': 'bytes=0-0',
-          },
-          responseType: ResponseType.stream,
-        ),
-      );
-      return true;
-    } catch (_) {
-      return false;
-    } finally {
-      dio.close(force: true);
-    }
-  }
-
-  /// 逐个探测候选地址，返回第一个可用者；全部不可用时回落到原始直链。
-  static Future<String> pickReachableCdnUrl(
-    Iterable<String> urls, {
-    CDNService? defaultCDNService,
-    bool isAudio = false,
-    Duration timeout = const Duration(seconds: 6),
-  }) async {
-    final list = urls.toList(growable: false);
-    if (list.isEmpty) return '';
-    final fallback = list.first;
-    final candidates = cdnCandidates(
-      list,
-      defaultCDNService: defaultCDNService,
-      isAudio: isAudio,
-    );
-    if (candidates.length <= 1) {
-      return candidates.isEmpty ? fallback : candidates.first;
-    }
-    for (final url in candidates) {
-      if (await isUrlReachable(url, timeout: timeout)) return url;
-    }
-    // 全部失败：回落到原始直链，让播放器按原行为处理（多半是可播放的）
-    return fallback;
-  }
-
   /// 完整 URL 提取 host；纯 host 不得含路径/查询/锚点；空白视为 null
   static String? normalizeCustomCDNHost(String? value) {
     final trimmed = value?.trim();
@@ -257,8 +164,23 @@ abstract final class VideoUtils {
     return CdnNodeStore.labelOf(host) ?? '自定义：$host';
   }
 
+  /// 取播放地址。
+  ///
+  /// 【设计约束：会员试用与 CDN 替换互斥】
+  ///
+  /// 实测结论（BV1FGJd63Exr / BV1j5nj68E48 等，逐条验证）：
+  /// * APP 通道（platform=android）直链的签名 `upsig` 覆盖了 `uparams` 中的
+  ///   `os`，`os` 记录服务端选定的节点；换 host 后 os 与新 host 不匹配 → 403。
+  ///   `mcdn` 型必 403；`mountaintoys` 型换 host 虽偶有 200，但请求头稍有不符
+  ///   （UA 为空/完整 Chrome UA/带 Referer）同样 403，稳定性不足以支撑普通播放。
+  /// * Web 通道直链同理：换 host 一律 403（mcdn 与 upos backupUrl 均如此）。
+  ///
+  /// 因此「开启会员试用」与「CDN 替换」不能同时生效：
+  /// * 试用开关打开 → 直接返回服务端下发的原始直链，不做任何 CDN 替换；
+  /// * 试用开关关闭 → 恢复上游原有的 CDN 替换逻辑（行为与本项目改前一致）。
+  ///
   /// [customHost] 显式指定自定义节点（节点测速用）；未传时按 [applyCustomCDN]
-  /// 决定是否采用全局自定义节点。全局自定义生效时完全旁路枚举语义。
+  /// 决定是否采用全局自定义节点。
   static String getCdnUrl(
     Iterable<String> urls, {
     CDNService? defaultCDNService,
@@ -266,27 +188,15 @@ abstract final class VideoUtils {
     bool applyCustomCDN = true,
     bool isAudio = false,
   }) {
+    // 会员试用开启时，取流走 APP 通道，CDN 替换必然破坏签名 —— 原样返回。
+    if (Pref.unlimitedVipQuality) {
+      return urls.first;
+    }
+
     defaultCDNService ??= cdnService;
     customHost ??= applyCustomCDN ? customCDNUrl : null;
     if (isAudio && disableAudioCDN) {
       customHost = null;
-    }
-
-    // APP 通道（platform=android）签发的直链分两类，处理方式不同
-    // （实测数据见 docs/cdn-setting-vs-unlimited-vip-quality.md）：
-    //  * PCDN 型（`*.mcdn.bilivideo.*`，query 里 os=mcdn、路径形如 /vN/resource/...）：
-    //    签名与节点绑定，换任何 host 都会 403，必须原样返回。
-    //  * `upos-sz-*` / `*.edge.mountaintoys.cn` 型：签名**不**绑定 host，
-    //    换 host 后仍返回 206，可以像 Web 直链一样享受 CDN 替换。
-    // 早期实现按 platform 一刀切整类短路，把这些本可替换的档位（恰恰是
-    // HDR/4K 这类高码率流）也一起跳过了，这里改为按节点类型判定。
-    if (urls.isNotEmpty && BiliMediaHeaders.isAndroidPlatformUrl(urls.first)) {
-      return _appUrlForCdn(
-        urls,
-        service: defaultCDNService,
-        customHost: customHost,
-        isAudio: isAudio,
-      );
     }
 
     if (customHost == null && defaultCDNService == CDNService.baseUrl) {

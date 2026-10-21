@@ -180,9 +180,6 @@ class VideoDetailController extends GetxController
   late VideoItem firstVideo;
   String? videoUrl;
   String? audioUrl;
-
-  /// CDN 看门狗代号：每次起播自增，用于作废过期的异步自愈任务。
-  int _cdnWatchdogToken = 0;
   Duration? defaultST;
   Duration? playedTime;
   String playedTimePos(bool hasParams) {
@@ -934,9 +931,6 @@ class VideoDetailController extends GetxController
       ..buffered.value = 0;
 
     firstVideo = findVideoByQa(currentVideoQa.code, setCodecs: true);
-    // 先用首选 URL 立即起播（不阻塞），同时在后台做存活探测：
-    // 若当前 CDN 不可用则自动切到可用的候选（最后回落到原始直链），
-    // 避免选了失效节点后画面卡住、要手动切换才能播放。
     videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
 
     /// 根据currentAudioQa 重新设置audioUrl
@@ -948,135 +942,7 @@ class VideoDetailController extends GetxController
       audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
     }
 
-    // 诊断日志（临时）：把最终传给 mpv 的 URL 与取流来源完整打出来，
-    // 便于定位「选 CDN 后黑屏」到底是哪条 URL、走了哪个分支。
-    // 故意不包 kDebugMode：release 也要能看，定位完即移除。
-    _logCdnDiagnostics(firstVideo, currentVideoQa.code);
-
     playerInit();
-  }
-
-  /// 临时诊断：把取流结果写到文件，便于定位「选 CDN 后黑屏」。
-  /// 用文件而非 debugPrint：release 构建下 debugPrint 可能被吞。
-  void _logCdnDiagnostics(VideoItem firstVideo, int requestedQa) {
-    String describe(String? u) {
-      if (u == null) return 'null';
-      try {
-        final uri = Uri.parse(u);
-        final q = uri.queryParameters;
-        return 'host=${uri.host} port=${uri.hasPort ? uri.port : "-"} '
-            'os=${q['os'] ?? "-"} platform=${q['platform'] ?? "-"} '
-            'path=${uri.path.length > 44 ? '...${uri.path.substring(uri.path.length - 34)}' : uri.path}';
-      } catch (_) {
-        return u;
-      }
-    }
-
-    try {
-      final lines = <String>[
-        '===== [CDN诊断] ${DateTime.now()} =====',
-        'qn=$requestedQa cdnService=${VideoUtils.cdnService.name} '
-            'custom=${VideoUtils.customCDNUrl ?? "-"}',
-        'playUrls(${firstVideo.playUrls.length}):',
-        for (final u in firstVideo.playUrls) '  原始: ${describe(u)}',
-        '最终 videoUrl: ${describe(videoUrl)}',
-        '最终 audioUrl: ${describe(audioUrl)}',
-        '候选队列:',
-        for (final u in VideoUtils.cdnCandidates(firstVideo.playUrls))
-          '  ${describe(u)}',
-        '===== [CDN诊断] end =====',
-        '',
-      ];
-      final text = lines.join('\n');
-      debugPrint(text);
-      final dir = Directory(appSupportDirPath);
-      final f = File('${dir.path}/cdn_diag.log');
-      f.writeAsStringSync(text, mode: FileMode.append, flush: true);
-    } catch (_) {
-      // 诊断本身失败不影响播放
-    }
-  }
-
-  /// 起播后监听「是否真的播起来了」；长时间卡在缓冲态则触发 CDN 自愈。
-  ///
-  /// mpv 没有暴露错误事件，只能靠状态推断：正常起播后
-  /// `isBuffering` 会转 false 且 `playerStatus` 变 playing；
-  /// 若 8 秒后仍不 playing，基本可判定当前地址不可用（也可能是网络慢，
-  /// 所以只触发一次，且自愈内部还会再做一次真实可达性探测）。
-  void _startCdnWatchdog(VideoItem firstVideo, AudioQuality? audioQa) {
-    if (VideoUtils.cdnService == CDNService.baseUrl &&
-        VideoUtils.customCDNUrl == null) {
-      return;
-    }
-    final token = ++_cdnWatchdogToken;
-    Future(() async {
-      await Future.delayed(const Duration(seconds: 8));
-      // 期间已重新起播或页面已关闭，作废本次看门狗
-      if (isClosed || token != _cdnWatchdogToken) return;
-      if (plPlayerController.playerStatus.isPlaying) return;
-      if (kDebugMode) {
-        debugPrint('[cdn] 看门狗：8s 未起播，尝试切换可用 CDN');
-      }
-      _selfHealCdnUrls(firstVideo, audioQa);
-    });
-  }
-
-  /// 后台校验当前取流地址是否可用；不可用时自动切到可用候选并重载播放器。
-  ///
-  /// 触发时机（见 [playerInit]）：每次起播后启动一个缓冲看门狗——
-  /// 若 8 秒内仍未进入播放态（isBuffering 一直为 true / 未 playing），
-  /// 就认为当前 CDN 不可用，按候选顺序探测并自动切换，全部失败则回原始直链。
-  ///
-  /// 只在用户显式选择了具体 CDN 时才介入（基础URL 时零开销）；
-  /// 候选顺序：所选 CDN → 其余原始直链（含 B 站下发的 backupUrl）。
-  void _selfHealCdnUrls(
-    VideoItem firstVideo,
-    AudioQuality? audioQa,
-  ) {
-    if (VideoUtils.cdnService == CDNService.baseUrl &&
-        VideoUtils.customCDNUrl == null) {
-      return;
-    }
-    Future(() async {
-      try {
-        final videoCandidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
-        if (videoCandidates.length <= 1) return;
-        final current = videoUrl;
-        if (current == null) return;
-        // 当前地址可用就不动，避免无谓重载导致画面跳动
-        if (await VideoUtils.isUrlReachable(current)) return;
-        String? good;
-        for (final u in videoCandidates) {
-          if (u == current) continue;
-          if (await VideoUtils.isUrlReachable(u)) {
-            good = u;
-            break;
-          }
-        }
-        if (good == null || isClosed) return;
-        videoUrl = good;
-        if (audioQa != null && data.dash?.audio?.isNotEmpty == true) {
-          final firstAudio = data.dash!.audio!.firstWhere(
-            (i) => i.id == audioQa.code,
-            orElse: () => data.dash!.audio!.first,
-          );
-          final audioCandidates = VideoUtils.cdnCandidates(
-            firstAudio.playUrls,
-            isAudio: true,
-          );
-          for (final u in audioCandidates) {
-            if (await VideoUtils.isUrlReachable(u)) {
-              audioUrl = u;
-              break;
-            }
-          }
-        }
-        if (kDebugMode) debugPrint('[cdn] 自愈：当前 CDN 不可用，已切换到 $good');
-        await playerInit();
-      } catch (_) {
-        // 探测失败不影响正常播放
-      }
-    });
   }
 
   Future<void>? initPlayerIfNeeded(bool autoFullScreenFlag) {
@@ -1106,8 +972,6 @@ class VideoDetailController extends GetxController
     Duration? seek = defaultST ?? playedTime;
     if (seek == .zero) seek = null;
     seek ??= getFirstSegment();
-    // 诊断日志（临时）：真正传给播放器的 URL 在这里，直接落盘便于排查。
-    _logCdnDiagnostics(firstVideo, currentVideoQa.value?.code ?? -1);
     await plPlayerController.setDataSource(
       isFileSource
           ? FileSource(
@@ -1143,11 +1007,6 @@ class VideoDetailController extends GetxController
       autoFullScreenFlag: autoFullScreenFlag,
     );
 
-    // CDN 失效自动回退：起播后启动看门狗，8 秒内没能进入播放态
-    // 就判定当前 CDN 不可用，走候选轮询并自动重载（详见 _selfHealCdnUrls）。
-    if (!isFileSource) {
-      _startCdnWatchdog(firstVideo, currentAudioQa);
-    }
 
     // 检查 controller 是否已关闭，如果已关闭则跳过后续的资源加载操作
     // （播放信息、弹幕趋势、SponsorBlock 等），避免已销毁的 controller

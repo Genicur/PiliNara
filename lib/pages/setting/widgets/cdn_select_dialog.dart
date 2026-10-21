@@ -1,6 +1,7 @@
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
-import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
@@ -11,6 +12,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
+import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:material_ui/material_ui.dart';
@@ -82,16 +84,41 @@ class CdnSpeedTester {
     if (sample case final sample?) {
       return sample;
     }
-    final result = await VideoHttp.videoUrl(
-      cid: 196018899,
-      bvid: 'BV1fK4y1t7hj',
-      qn: VideoQuality.high1080.code,
-      tryLook: false,
-      videoType: VideoType.ugc,
-    );
+    final result = await _requestWebSample();
     final item = result.dataOrNull?.dash?.video?.first;
     if (item == null) throw Exception('无法获取视频流');
     return sample = item;
+  }
+
+  /// CDN 测速必须拿 **Web 通道** 的样本流。
+  ///
+  /// 不能直接用 `VideoHttp.videoUrl()`：它现在会优先走 APP gRPC 通道
+  /// （见 R1「无限试用会员画质」），返回的直链 query 里是 `platform=android`。
+  /// 这类直链有两个问题：
+  /// 1. 签名与 host 绑定，`VideoUtils.getCdnUrl` 会直接短路原样返回，
+  ///    导致每个 CDN 枚举拿到同一条 URL，「按 CDN 测速」语义失效；
+  /// 2. 不能带 Web 的 Referer/UA，测速器请求头会给到 403，
+  ///    于是每一行都报「此视频可能无法替换为该CDN」。
+  ///
+  /// 因此这里显式请求 Web 端点，保证样本是 `platform=pc` 的直链，
+  /// 既能正常换 host 测速，也能被下方 Web 请求头正常访问。
+  Future<LoadingState<PlayUrlModel>> _requestWebSample() async {
+    final params = await WbiSign.makSign({
+      'bvid': 'BV1fK4y1t7hj',
+      'cid': 196018899,
+      'qn': VideoQuality.high1080.code,
+      'fnval': 4048,
+      'fnver': 0,
+      'fourk': 1,
+    });
+    final res = await Request().get(
+      VideoType.ugc.api,
+      queryParameters: params,
+    );
+    if (res.data['code'] == 0) {
+      return Success(PlayUrlModel.fromJson(res.data['data']));
+    }
+    return Error(res.data['message']);
   }
 
   /// 从首包到达开始计时（剔除建连与首字节耗时），下载 2MB 或 5s 即出结果

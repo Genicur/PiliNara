@@ -167,6 +167,14 @@ CONTEXT.md
 
 .claude
 test*
+# 放行已纳入版本库的单元测试：test* 会连 test/ 目录本身一起忽略，
+# 需先否定目录（否则 git 不会进入该目录），再逐文件放行。
+!/test/
+/test/*
+!/test/utils/
+/test/utils/*
+!/test/utils/cdn_speed_sample_test.dart
+!/test/danmaku_mask_geometry_test.dart
 /pubspec_overrides.yaml
 .mindfs
 .agents 

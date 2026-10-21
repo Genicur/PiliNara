@@ -3,10 +3,9 @@ import 'dart:io' show Platform;
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/image_grid/image_grid_view.dart';
 import 'package:PiliPlus/models/common/audio_normalization.dart';
-import 'package:PiliPlus/models/common/dm_chart_source.dart';
-import 'package:PiliPlus/models/common/super_chat_time_type.dart';
 import 'package:PiliPlus/models/common/super_chat_type.dart';
 import 'package:PiliPlus/models/common/super_resolution_type.dart';
+import 'package:PiliPlus/models/common/super_chat_time_type.dart';
 import 'package:PiliPlus/models/common/video/subtitle_pref_type.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/pages/fullscreen_sc_size.dart';
@@ -37,13 +36,6 @@ List<SettingsModel> get playSettings => [
     leading: const Icon(Icons.speed_outlined),
     title: '倍速设置',
     subtitle: '设置视频播放速度',
-  ),
-  const SwitchModel(
-    title: '智能防挡',
-    subtitle: '让弹幕避开画面中的人物（部分视频支持）',
-    leading: Icon(Icons.person_off_outlined),
-    setKey: SettingBoxKey.enableDanmakuMask,
-    defaultVal: false,
   ),
   if (kDebugMode || Platform.isAndroid)
     NormalModel(
@@ -114,12 +106,6 @@ List<SettingsModel> get playSettings => [
     defaultVal: false,
   ),
   const SwitchModel(
-    title: '全屏显示锁定按钮',
-    leading: Icon(Icons.lock_outline),
-    setKey: SettingBoxKey.showFsLockBtn,
-    defaultVal: true,
-  ),
-  const SwitchModel(
     title: '全屏显示截图按钮',
     leading: Icon(Icons.photo_camera_outlined),
     setKey: SettingBoxKey.showFsScreenshotBtn,
@@ -151,12 +137,6 @@ List<SettingsModel> get playSettings => [
       setKey: SettingBoxKey.setSystemBrightness,
       defaultVal: false,
     ),
-  const SwitchModel(
-    title: '中间滑动进入/退出全屏',
-    leading: Icon(MdiIcons.panVertical),
-    setKey: SettingBoxKey.enableSlideFS,
-    defaultVal: true,
-  ),
   if (PlatformUtils.isMobile)
     SwitchModel(
       title: '应用内音量',
@@ -176,22 +156,6 @@ List<SettingsModel> get playSettings => [
       setKey: SettingBoxKey.enableVolumeBoost,
       defaultVal: false,
     ),
-  if (PlatformUtils.isMobile)
-    NormalModel(
-      title: '播放器音量',
-      leading: const Icon(Icons.volume_up),
-      getSubtitle: () =>
-          '当前:「${Pref.playerVolume.toStringAsFixed(0)}%」\n'
-          '在系统音量基础上增益；开启应用内音量后不生效',
-      onTap: showPlayerVolumeDialog,
-    )
-  else
-    NormalModel(
-      title: '最高音量',
-      leading: const Icon(Icons.volume_up),
-      getSubtitle: () => '当前:「${(Pref.maxVolume * 100).toStringAsFixed(0)}%」',
-      onTap: _showMaxVolumeDialog,
-    ),
   const SwitchModel(
     title: '中间滑动进入/退出全屏',
     leading: Icon(MdiIcons.panVertical),
@@ -210,13 +174,6 @@ List<SettingsModel> get playSettings => [
     leading: Icon(Icons.preview_outlined),
     setKey: SettingBoxKey.showSeekPreview,
     defaultVal: true,
-  ),
-  NormalModel(
-    title: '高能进度条',
-    leading: const Icon(Icons.show_chart),
-    getSubtitle: () =>
-        '当前:「${Pref.dmChartSource.label}」\n显示视频弹幕热度趋势；官方无数据时可使用弹幕密度生成',
-    onTap: _showDmChartSourceDialog,
   ),
   const SwitchModel(
     title: '启用双指缩小视频',
@@ -299,11 +256,13 @@ List<SettingsModel> get playSettings => [
     setKey: SettingBoxKey.reverseFromFirst,
     defaultVal: true,
   ),
-  if (kDebugMode || PlatformUtils.isMobile)
+  if (PlatformUtils.isMobile)
     NormalModel(
       title: '播放器音量',
       leading: const Icon(Icons.volume_up),
-      getSubtitle: () => '当前:「${Pref.playerVolume.toStringAsFixed(0)}%」',
+      getSubtitle: () =>
+          '当前:「${Pref.playerVolume.toStringAsFixed(0)}%」\n'
+          '在系统音量基础上增益；开启应用内音量后不生效',
       onTap: showPlayerVolumeDialog,
     )
   else
@@ -414,6 +373,19 @@ List<SettingsModel> get playSettings => [
   ),
   if (PlatformUtils.isMobile)
     SwitchModel(
+      title: '后台播放',
+      subtitle: '进入后台时继续播放',
+      leading: const Icon(Icons.motion_photos_pause_outlined),
+      setKey: SettingBoxKey.continuePlayInBackground,
+      defaultVal: false,
+      onChanged: (value) {
+        if (!value) {
+          PlPlayerController.instance?.onAutoAudioOnlySettingChanged();
+        }
+      },
+    ),
+  if (PlatformUtils.isMobile)
+    SwitchModel(
       title: '后台只听音频（实验性）',
       subtitle: '需开启「后台播放」后才生效\n进入后台或息屏一段时间后停止视频流，只保留声音；回到前台恢复画面',
       leading: const Icon(Icons.headphones_outlined),
@@ -430,21 +402,6 @@ List<SettingsModel> get playSettings => [
     setKey: SettingBoxKey.enableInAppPip,
     defaultVal: true,
   ),
-  const SwitchModel(
-    title: '应用内画中画',
-    subtitle: '支持在应用内以小窗形式播放视频',
-    leading: Icon(Icons.picture_in_picture_alt_outlined),
-    setKey: SettingBoxKey.enableInAppPip,
-    defaultVal: true,
-  ),
-  if (PlatformUtils.isMobile)
-    const SwitchModel(
-      title: '后台播放',
-      subtitle: '进入后台时继续播放',
-      leading: Icon(Icons.motion_photos_pause_outlined),
-      setKey: SettingBoxKey.continuePlayInBackground,
-      defaultVal: false,
-    ),
   if ((Platform.isAndroid && PiliAndroidHelper.isPipAvailable) ||
       (Platform.isIOS && IOSPipHelper.isAvailable))
     SwitchModel(
@@ -464,27 +421,13 @@ List<SettingsModel> get playSettings => [
   // PiP on iOS only shows the video frames, without danmaku.
   if (Platform.isAndroid)
     const SwitchModel(
-      title: '画中画不加载弹幕',
-      subtitle: '当弹幕开关开启时，小窗屏蔽弹幕以获得较好的体验',
-      leading: Icon(CustomIcons.dm_off),
-      setKey: SettingBoxKey.pipNoDanmaku,
-      defaultVal: false,
-    ),
-  const SwitchModel(
-    title: '全屏手势反向',
-    subtitle: '默认播放器中部向上滑动进入全屏，向下退出\n开启后向下全屏，向上退出',
-    leading: Icon(Icons.swap_vert),
-    setKey: SettingBoxKey.fullScreenGestureReverse,
-    defaultVal: false,
-  ),
-  if (Platform.isAndroid)
-    const SwitchModel(
       title: '应用内小窗转后台画中画（实验性）',
       subtitle: '实验性功能：应用内小窗存在时，退到后台自动切换为系统 PiP；可能因系统差异出现异常',
       leading: Icon(Icons.science_outlined),
       setKey: SettingBoxKey.enableInAppPipToSystemPip,
       defaultVal: true,
     ),
+  if (Platform.isAndroid)
     const SwitchModel(
       title: '画中画不加载弹幕',
       subtitle: '当弹幕开关开启时，小窗屏蔽弹幕以获得较好的体验',
@@ -562,6 +505,7 @@ List<SettingsModel> get playSettings => [
   ),
 ];
 
+
 Future<void> _showSubtitleDialog(
   BuildContext context,
   VoidCallback setState,
@@ -597,28 +541,6 @@ Future<void> _showSuperChatTimeDialog(
   );
   if (res != null) {
     await GStorage.setting.put(SettingBoxKey.superChatTimeType, res.index);
-    setState();
-  }
-}
-
-Future<void> _showDmChartSourceDialog(
-  BuildContext context,
-  VoidCallback setState,
-) async {
-  final res = await showDialog<DmChartSource>(
-    context: context,
-    builder: (context) => SelectDialog<DmChartSource>(
-      title: '高能进度条',
-      value: Pref.dmChartSource,
-      values: DmChartSource.values.map((e) => (e, e.label)).toList(),
-      subtitleBuilder: (context, index) => Text(
-        DmChartSource.values[index].desc,
-        style: TextTheme.of(context).bodySmall,
-      ),
-    ),
-  );
-  if (res != null) {
-    await GStorage.setting.put(SettingBoxKey.dmChartSource, res.index);
     setState();
   }
 }

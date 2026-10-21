@@ -113,8 +113,8 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       if (currentDetail.cid == response.cid) {
         // keep reversed pages
         response
-          ..pages = videoDetail.value.pages
-          ..listOrder = videoDetail.value.listOrder;
+          ..pages = currentDetail.pages
+          ..listOrder = currentDetail.listOrder;
       }
       videoDetail.value = response;
       try {

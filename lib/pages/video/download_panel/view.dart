@@ -135,52 +135,53 @@ class _DownloadPanelState extends State<DownloadPanel> {
       padding: const EdgeInsets.fromLTRB(16, 12, 0, 12),
       child: Row(
         children: [
-          Expanded(
-            child: Row(
-              spacing: 12,
-              children: [
-                Text('目标画质', style: textStyle),
-                Builder(
-                  builder: (context) => StaticPopupMenuButton<VideoQuality>(
-                    initialValue: _quality,
-                    onSelected: (value) {
-                      _quality = value;
-                      (context as Element).markNeedsBuild();
-                    },
-                    itemBuilder: (context) => VideoQuality.values
-                        .map(
-                          (e) => PopupMenuItem(
-                            value: e,
-                            child: Text(e.desc),
-                          ),
-                        )
-                        .toList(),
-                    child: _buildPopupMenuChild(_quality.desc),
-                  ),
-                ),
-                Text('音质', style: textStyle),
-                Builder(
-                  builder: (context) => StaticPopupMenuButton<AudioQuality>(
-                    initialValue: _audioQuality,
-                    onSelected: (value) {
-                      _audioQuality = value;
-                      (context as Element).markNeedsBuild();
-                    },
-                    itemBuilder: (context) => AudioQuality.values
-                        .map(
-                          (e) => PopupMenuItem(
-                            value: e,
-                            child: Text(e.desc),
-                          ),
-                        )
-                        .toList(),
-                    child: _buildPopupMenuChild(_audioQuality.desc),
-                  ),
-                ),
-              ],
+          Text(
+            '目标画质',
+            style: textStyle,
+          ),
+          Builder(
+            builder: (context) => StaticPopupMenuButton<VideoQuality>(
+              initialValue: _quality,
+              onSelected: (value) {
+                _quality = value;
+                (context as Element).markNeedsBuild();
+              },
+              itemBuilder: (context) => VideoQuality.values
+                  .map(
+                    (e) => PopupMenuItem(
+                      value: e,
+                      child: Text(e.desc),
+                    ),
+                  )
+                  .toList(),
+              child: _buildPopupMenuChild(_quality.desc),
             ),
           ),
-          if (PlatformUtils.isMobile)
+          const SizedBox(width: 16),
+          Text(
+            '目标音质',
+            style: textStyle,
+          ),
+          Builder(
+            builder: (context) => StaticPopupMenuButton<AudioQuality>(
+              initialValue: _audioQuality,
+              onSelected: (value) {
+                _audioQuality = value;
+                (context as Element).markNeedsBuild();
+              },
+              itemBuilder: (context) => AudioQuality.values
+                  .map(
+                    (e) => PopupMenuItem(
+                      value: e,
+                      child: Text(e.desc),
+                    ),
+                  )
+                  .toList(),
+              child: _buildPopupMenuChild(_audioQuality.desc),
+            ),
+          ),
+          if (PlatformUtils.isMobile) ...[
+            const Spacer(),
             Padding(
               padding: const .only(right: 16),
               child: StreamBuilder(
@@ -198,8 +199,8 @@ class _DownloadPanelState extends State<DownloadPanel> {
                   return const SizedBox.shrink();
                 },
               ),
-            )
-          else if (kDebugMode)
+            ),
+          ] else if (kDebugMode)
             Padding(
               padding: const .only(right: 16),
               child: Icon(

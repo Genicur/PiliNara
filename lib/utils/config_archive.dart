@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show Directory, File;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:PiliPlus/build_config.dart';
 import 'package:PiliPlus/common/constants.dart';
@@ -15,13 +14,12 @@ import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/parse_int.dart';
-import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:archive/archive.dart';
-import 'package:path/path.dart' as path;
 import 'package:get/get.dart';
+import 'package:path/path.dart' as path;
 
 class ImportResult {
   const ImportResult({required this.applied, this.message});
@@ -40,7 +38,8 @@ abstract final class ConfigArchive {
   static const String blacklistFileName = 'blacklist.json';
   static const String replyFileName = 'reply.json';
   static const String searchFileName = 'search.json';
-  static const String fontFileName = FontUtils.kFontName;
+  /// 归档内的字体文件名：沿用导入池里的原始文件名
+  static const String fontFileName = 'customFont';
 
   static const String _type = 'data_archive';
 
@@ -66,14 +65,11 @@ abstract final class ConfigArchive {
       zip.add(ArchiveFile.string(replyFileName, reply));
     }
 
-    // fork 已改为「多字体导入池」：只导出当前选中的自定义字体文件，
-    // 由 fontFileName 承载；未被选中或非自定义字体时跳过。
-    final activeFontFile = _activeCustomFontFile();
-    if (activeFontFile != null && activeFontFile.existsSync()) {
+    if (FontUtils.activeFontFile case final fontFile?) {
       zip.add(
         ArchiveFile.stream(
-          fontFileName,
-          InputFileStream(activeFontFile.path),
+          '$fontFileName${path.extension(fontFile.path)}',
+          InputFileStream(fontFile.path),
         ),
       );
     }
@@ -146,51 +142,40 @@ abstract final class ConfigArchive {
     await apply(replyFileName, _importReply);
     await apply(searchFileName, _importSearch);
 
-    // fork 多字体池：把归档里的字体文件还原成「custom_font_<hash>」族并注册，
-    // 再把它设为当前应用字体。
-    if (archive.find(fontFileName) case final file?) {
-      totalBytes += file.size;
+    // 字体文件按扩展名存放，先在归档里找带字体后缀的那一项
+    final fontEntry = archive.files.cast<ArchiveFile?>().firstWhere(
+      (f) =>
+          f != null &&
+          path.basenameWithoutExtension(f.name) == fontFileName &&
+          FontUtils.isSupportedFontFile(f.name),
+      orElse: () => null,
+    );
+    if (fontEntry != null) {
+      totalBytes += fontEntry.size;
       if (totalBytes > _maxTotalBytes) throw UnsupportedError('数据包过大');
       try {
-        final bytes = file.content;
-        final dir = Directory(path.join(appSupportDirPath, 'font'));
-        if (!dir.existsSync()) {
-          await dir.create(recursive: true);
+        final tmpFile = File(
+          path.join(
+            Directory.systemTemp.path,
+            'pilinara_font_import${path.extension(fontEntry.name)}',
+          ),
+        );
+        await tmpFile.writeAsBytes(fontEntry.content);
+        final family = await FontUtils.adoptFontFile(tmpFile.path);
+        await tmpFile.delete().catchError((_) => tmpFile);
+        if (family != null) {
+          await GStorage.setting.put(SettingBoxKey.appFont, family);
+        } else {
+          sb.writeln('$fontFileName：字体导入失败');
         }
-        final hash = FontUtils.hashBytes(bytes);
-        final family = 'custom_font_$hash';
-        final saveTo = path.join(dir.path, '$hash.ttf');
-        await File(saveTo).writeAsBytes(bytes);
-        FontUtils.customFonts[family] = saveTo;
-        FontUtils.customFontNames[family] = '导入字体';
-        await GStorage.setting.putAll({
-          SettingBoxKey.customAppFont: Map<String, String>.from(
-            FontUtils.customFonts,
-          ),
-          SettingBoxKey.customAppFontNames: Map<String, String>.from(
-            FontUtils.customFontNames,
-          ),
-          SettingBoxKey.appFont: family,
-        });
-        await ui.loadFontFromList(bytes, fontFamily: family);
       } catch (e) {
         sb.writeln('$fontFileName：$e');
       } finally {
-        file.closeSync();
+        fontEntry.closeSync();
       }
     }
 
     return sb.toString();
-  }
-
-  /// 当前选中的自定义字体文件；未选用自定义字体时返回 null。
-  static File? _activeCustomFontFile() {
-    final family = Pref.appFont;
-    if (family == null) return null;
-    final fontPath = FontUtils.customFonts[family];
-    if (fontPath == null) return null;
-    final file = File(fontPath);
-    return file.existsSync() ? file : null;
   }
 
   /// 生成合并警告
@@ -265,7 +250,8 @@ abstract final class ConfigArchive {
       blacklistFileName,
       if (GStorage.reply != null) replyFileName,
       searchFileName,
-      if (FontUtils.customFonts.containsKey(Pref.appFont)) fontFileName,
+      if (FontUtils.activeFontFile case final fontFile?)
+        '$fontFileName${path.extension(fontFile.path)}',
     ],
   });
 

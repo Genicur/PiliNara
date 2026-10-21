@@ -157,6 +157,7 @@ docs/*
 !docs/high-quality-stream-handoff.md
 !docs/high-quality-stream-handoff-code.md
 !docs/high-quality-stream-handoff.patch
+!docs/cdn-setting-vs-unlimited-vip-quality.md
 test*.dart
 
 AGENTS.md

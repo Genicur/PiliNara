@@ -1,3 +1,4 @@
+import 'package:PiliPlus/http/bili_media_headers.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
@@ -82,12 +83,28 @@ class CdnSpeedTester {
 
   Future<BaseItem> getSample() async {
     if (sample case final sample?) {
-      return sample;
+      // 从视频页进入时调用方会传入当前播放流。开启「无限试用会员画质」后
+      // 它来自 APP 通道（platform=android），这类直链不能用于 CDN 测速：
+      //  · PCDN 型换 host 必 403；
+      //  · 即便是可替换的 upos 型，也要求不带 Referer，而测速器固定带 Web 头。
+      // 因此只接受 Web 通道的样本，否则退回自取 Web 样本。
+      if (!_isAppSample(sample)) {
+        return sample;
+      }
     }
     final result = await _requestWebSample();
     final item = result.dataOrNull?.dash?.video?.first;
     if (item == null) throw Exception('无法获取视频流');
     return sample = item;
+  }
+
+  /// 传入的样本是否来自 APP 通道（platform=android）。
+  static bool _isAppSample(BaseItem item) {
+    final urls = <String>[
+      ?item.baseUrl,
+      ...?item.backupUrl,
+    ];
+    return urls.any(BiliMediaHeaders.isAndroidPlatformUrl);
   }
 
   /// CDN 测速必须拿 **Web 通道** 的样本流。
@@ -367,8 +384,9 @@ class _CdnSelectDialogState extends State<CdnSelectDialog> {
   Future<void> _pickNode() async {
     final host = await showDialog<String>(
       context: context,
-      builder: (context) =>
-          CdnNodeDialog(sample: _tester?.sample ?? widget.sample),
+      // 与 _testAll 保持一致：传入的是 getSample() 归一后的样本，
+      // 避免把视频页传来的 APP 直链带进节点测速（那类直链换 host 会 403）。
+      builder: (context) => CdnNodeDialog(sample: _tester?.sample),
     );
     if (host != null && mounted) {
       Navigator.pop(context, CdnCustomResult(host));

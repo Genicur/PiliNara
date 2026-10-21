@@ -26,6 +26,7 @@ import 'package:PiliPlus/models/common/sponsor_block/post_segment_model.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_model.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
 import 'package:PiliPlus/models/common/video/audio_quality.dart';
+import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models/common/video/subtitle_pref_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
@@ -930,6 +931,9 @@ class VideoDetailController extends GetxController
       ..buffered.value = 0;
 
     firstVideo = findVideoByQa(currentVideoQa.code, setCodecs: true);
+    // 先用首选 URL 立即起播（不阻塞），同时在后台做存活探测：
+    // 若当前 CDN 不可用则自动切到可用的候选（最后回落到原始直链），
+    // 避免选了失效节点后画面卡住、要手动切换才能播放。
     videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
 
     /// 根据currentAudioQa 重新设置audioUrl
@@ -941,7 +945,63 @@ class VideoDetailController extends GetxController
       audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
     }
 
+    // 后台校验并自愈（不 await，不阻塞起播）
+    _selfHealCdnUrls(firstVideo, currentAudioQa);
+
     playerInit();
+  }
+
+  /// 后台校验当前取流地址是否可用；不可用时自动切到可用候选并重载播放器。
+  ///
+  /// 只在用户显式选择了具体 CDN 时才做探测（基础URL 时零开销）；
+  /// 候选顺序：所选 CDN → 其余原始直链；全部不可用则保持原样（多为可播放）。
+  void _selfHealCdnUrls(
+    VideoItem firstVideo,
+    AudioQuality? audioQa,
+  ) {
+    if (VideoUtils.cdnService == CDNService.baseUrl &&
+        VideoUtils.customCDNUrl == null) {
+      return;
+    }
+    Future(() async {
+      try {
+        final videoCandidates = VideoUtils.cdnCandidates(firstVideo.playUrls);
+        final current = videoUrl;
+        if (current == null || videoCandidates.length <= 1) return;
+        // 当前地址可用就不动，避免无谓重载导致画面跳动
+        if (await VideoUtils.isUrlReachable(current)) return;
+        String? good;
+        for (final u in videoCandidates) {
+          if (u == current) continue;
+          if (await VideoUtils.isUrlReachable(u)) {
+            good = u;
+            break;
+          }
+        }
+        if (good == null || isClosed) return;
+        videoUrl = good;
+        if (audioQa != null && data.dash?.audio?.isNotEmpty == true) {
+          final firstAudio = data.dash!.audio!.firstWhere(
+            (i) => i.id == audioQa.code,
+            orElse: () => data.dash!.audio!.first,
+          );
+          final audioCandidates = VideoUtils.cdnCandidates(
+            firstAudio.playUrls,
+            isAudio: true,
+          );
+          for (final u in audioCandidates) {
+            if (await VideoUtils.isUrlReachable(u)) {
+              audioUrl = u;
+              break;
+            }
+          }
+        }
+        if (kDebugMode) debugPrint('[cdn] 自愈：当前 CDN 不可用，已切换到 $good');
+        playerInit();
+      } catch (_) {
+        // 探测失败不影响正常播放
+      }
+    });
   }
 
   Future<void>? initPlayerIfNeeded(bool autoFullScreenFlag) {

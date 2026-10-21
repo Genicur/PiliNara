@@ -249,19 +249,21 @@ abstract final class VideoHttp {
     String? language,
     bool voiceBalance = false,
   }) async {
-    // UGC 视频优先走 APP 端 gRPC PlayView：只有这条通道能拿到 4K / 1080P+ 的
-    // dash 直链（Web 端 x/player/wbi/playurl 对非大会员硬性封顶 1080P）。
-    // 失败（未登录 / 没有手机端 access_key / 接口异常）时静默回退 Web 通道。
-    // 带 epid/seasonId 的走番剧（pgc）逻辑，这里不接管。
-    // R9：「无限试用会员画质」开关关闭时完全跳过硬 APP 通道（一次 PlayView 都不发），
-    // 干净地回到上游 Web 逻辑。
-    if (Pref.unlimitedVipQuality &&
+    // 【取流通道选择】用户要求：仅 VIP 画质使用试用方法，非 VIP 画质走上游 Web。
+    //
+    // videoUrl() 一次返回全部档位，所以不能按单档请求分流。这里的策略是：
+    //   1. 先按上游原有逻辑走 Web 通道（保证非会员体验与本项目改前完全一致）；
+    //   2. 只有当「本次请求的 qn 是会员档位」且 Web 没给到该档位时，
+    //      才补走 APP gRPC PlayView，并把结果与 Web 结果合并。
+    //
+    // 这样：看 1080P 及以下 → 纯 Web，CDN 设置照常生效；
+    //       看 4K/HDR/8K/1080P+ → 才使用试用通道拿到会员画质。
+    // 开关关闭时一次 PlayView 都不发。
+    final appFallbackNeeded = Pref.unlimitedVipQuality &&
         videoType == .ugc &&
         epid == null &&
-        seasonId == null) {
-      final appRes = await _videoUrlByApp(avid: avid, bvid: bvid, cid: cid);
-      if (appRes != null) return appRes;
-    }
+        seasonId == null &&
+        VideoQuality.isVipQuality(qn);
 
     final Map<String, dynamic> params;
     Map<String, dynamic>? data;
@@ -358,6 +360,16 @@ abstract final class VideoHttp {
               }
             }
         }
+        // Web 已取到流。若本次请求的是会员档位而 Web 未下发该档位，
+        // 再用试用通道补齐（只补缺失档位，不覆盖 Web 结果）。
+        if (appFallbackNeeded &&
+            videoType == .ugc &&
+            !_hasQuality(data, qn)) {
+          final appRes = await _videoUrlByApp(avid: avid, bvid: bvid, cid: cid);
+          if (appRes case Success(:final response)) {
+            return Success(_mergePlayUrlModel(data, response));
+          }
+        }
         return Success(data);
       } else if (epid != null && videoType == .ugc) {
         return await videoUrl(
@@ -375,6 +387,68 @@ abstract final class VideoHttp {
     } catch (e, s) {
       return Error('$e\n\n$s');
     }
+  }
+
+  /// Web 结果里是否已包含指定画质档位的可播放流。
+  static bool _hasQuality(PlayUrlModel model, int qn) {
+    final videos = model.dash?.video;
+    if (videos == null || videos.isEmpty) return false;
+    // 请求 4K 时 Web 可能只给到 1080P；判定用「存在 >= qn 的档位」，
+    // 因为服务端下发的最高档可能高于请求档（如请求 112 但给了 120）。
+    return videos.any((v) => v.id >= qn);
+  }
+
+  /// 把试用通道（APP）拿到的档位合并进 Web 结果。
+  ///
+  /// 只补充 Web 缺失的档位，不覆盖 Web 已有条目：
+  /// 这样 1080P 及以下仍用 Web 直链（CDN 设置照常生效），
+  /// 仅高画质档位来自 APP 通道。
+  static PlayUrlModel _mergePlayUrlModel(
+    PlayUrlModel web,
+    PlayUrlModel app,
+  ) {
+    final webDash = web.dash;
+    final appDash = app.dash;
+    if (webDash == null) return app;
+    if (appDash == null) return web;
+
+    final webVideos = webDash.video ?? <VideoItem>[];
+    final webIds = webVideos.map((v) => v.id).toSet();
+
+    // 补充 Web 没有的档位，并按 id 降序（findAvailableVideoQuality
+    // 依赖 dash.video.first 作为「最高画质」）。
+    final merged = <VideoItem>[
+      ...webVideos,
+      ...(appDash.video ?? const <VideoItem>[]).where(
+        (v) => !webIds.contains(v.id),
+      ),
+    ]..sort((a, b) => b.id.compareTo(a.id));
+
+    // support_formats 同步补齐，避免 UI 里档位没有描述/编码信息
+    final webFormats = web.supportFormats ?? <FormatItem>[];
+    final webFormatIds = webFormats.map((f) => f.quality).toSet();
+    final mergedFormats = <FormatItem>[
+      ...webFormats,
+      ...(app.supportFormats ?? const <FormatItem>[]).where(
+        (f) => !webFormatIds.contains(f.quality),
+      ),
+    ];
+
+    final acceptQuality = <int>{
+      ...?web.acceptQuality,
+      ...?app.acceptQuality,
+    }.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    web.dash = Dash(
+      duration: webDash.duration ?? appDash.duration,
+      minBufferTime: webDash.minBufferTime ?? appDash.minBufferTime,
+      video: merged,
+      audio: webDash.audio ?? appDash.audio,
+    );
+    web.supportFormats = mergedFormats;
+    web.acceptQuality = acceptQuality;
+    return web;
   }
 
   /// 走 APP 端 gRPC PlayView 取流（可拿到 4K / 1080P+）。

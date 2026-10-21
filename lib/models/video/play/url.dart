@@ -357,6 +357,8 @@ class FormatItem {
     this.newDesc,
     this.displayDesc,
     this.codecs,
+    this.limitWatchReason,
+    this.needVip,
   });
 
   int? quality;
@@ -365,12 +367,25 @@ class FormatItem {
   String? displayDesc;
   List<String>? codecs;
 
+  /// Web `support_formats[].limit_watch_reason`：1 表示大会员门控。
+  int? limitWatchReason;
+
+  /// APP `StreamInfo.need_vip`：服务端标注该档位需要大会员。
+  /// 与 [limitWatchReason] 二选一可用，任一为真即视为会员档位。
+  bool? needVip;
+
+  /// 该档位是否需要大会员（用于「仅 VIP 画质走试用通道」的分流判定）。
+  bool get isVipLocked => (limitWatchReason ?? 0) == 1 || (needVip ?? false);
+
   FormatItem.fromJson(Map<String, dynamic> json) {
     quality = json['quality'];
     format = json['format'];
     newDesc = json['new_description'];
     displayDesc = json['display_desc'];
     codecs = (json['codecs'] as List?)?.fromCast<String>();
+    // Web 通道的会员门控标记；APP 通道由 playview_convert 填 needVip
+    limitWatchReason = json['limit_watch_reason'] as int?;
+    needVip = json['need_vip'] as bool?;
   }
 }
 

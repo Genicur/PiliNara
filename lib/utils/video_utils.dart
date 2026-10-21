@@ -8,6 +8,7 @@ import 'package:PiliPlus/models_new/live/live_room_play_info/codec.dart';
 import 'package:PiliPlus/utils/cdn_node_store.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
 abstract final class VideoUtils {
@@ -108,6 +109,98 @@ abstract final class VideoUtils {
     final serviceHost = service.host;
     if (serviceHost == null) return picked;
     return Uri.parse(picked).replace(host: serviceHost).toString();
+  }
+
+  /// 取流的候选 URL 队列：按优先级依次尝试，最后一个必定是「原始直链」。
+  ///
+  /// 用户要求：「先做轮询，都不行再回到原始直链」。播放器在首个地址失败时
+  /// 会从这里取下一个候选，全部失败则回落到服务端下发的原始地址，
+  /// 避免因为选了不可用 CDN 而卡住、需要手动切换。
+  static List<String> cdnCandidates(
+    Iterable<String> urls, {
+    CDNService? defaultCDNService,
+    bool isAudio = false,
+  }) {
+    final list = urls.toList(growable: false);
+    if (list.isEmpty) return const [];
+    final primary = getCdnUrl(
+      list,
+      defaultCDNService: defaultCDNService,
+      isAudio: isAudio,
+    );
+    final result = <String>[];
+    void add(String u) {
+      if (u.isNotEmpty && !result.contains(u)) result.add(u);
+    }
+
+    add(primary);
+    // 其余原始直链作为次选（B 站下发的 backupUrl 往往就是可用备用节点）
+    for (final u in list) {
+      add(u);
+    }
+    return result;
+  }
+
+  /// 单个地址是否可出数据（Range: bytes=0-0 轻量请求，只读 1 字节）。
+  ///
+  /// 请求头按直链来源选用 [BiliMediaHeaders.forPlayer]，避免因 Referer/UA
+  /// 不对而把可用节点误判为不可用。
+  static Future<bool> isUrlReachable(
+    String url, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    if (url.isEmpty) return false;
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: timeout,
+        receiveTimeout: timeout,
+        validateStatus: (s) => s != null && s < 400,
+      ),
+    );
+    try {
+      final (ua, referer) = BiliMediaHeaders.forPlayer(url);
+      await dio.get<void>(
+        url,
+        options: Options(
+          headers: {
+            'user-agent': ua,
+            if (referer.isNotEmpty) 'referer': referer,
+            'Range': 'bytes=0-0',
+          },
+          responseType: ResponseType.stream,
+        ),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      dio.close(force: true);
+    }
+  }
+
+  /// 逐个探测候选地址，返回第一个可用者；全部不可用时回落到原始直链。
+  static Future<String> pickReachableCdnUrl(
+    Iterable<String> urls, {
+    CDNService? defaultCDNService,
+    bool isAudio = false,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final list = urls.toList(growable: false);
+    if (list.isEmpty) return '';
+    final fallback = list.first;
+    final candidates = cdnCandidates(
+      list,
+      defaultCDNService: defaultCDNService,
+      isAudio: isAudio,
+    );
+    if (candidates.length <= 1) {
+      return candidates.isEmpty ? fallback : candidates.first;
+    }
+    for (final url in candidates) {
+      if (await isUrlReachable(url, timeout: timeout)) return url;
+    }
+    // 全部失败：回落到原始直链，让播放器按原行为处理（多半是可播放的）
+    return fallback;
   }
 
   /// 完整 URL 提取 host；纯 host 不得含路径/查询/锚点；空白视为 null

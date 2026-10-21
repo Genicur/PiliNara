@@ -64,7 +64,7 @@ abstract final class PlayViewConverter {
     final audioMap = <int, Map<String, dynamic>>{};
     // quality -> 该档位出现过的编码（用于 supportFormats.codecs）
     final qualityCodecs = <int, List<String>>{};
-    final qualityDesc = <int, Map<String, String>>{};
+    final qualityDesc = <int, Map<String, dynamic>>{};
 
     for (final reply in replies) {
       if (!reply.hasVideoInfo()) continue;
@@ -123,6 +123,9 @@ abstract final class PlayViewConverter {
                 (si != null && si.hasDisplayDesc() && si.displayDesc.isNotEmpty)
                 ? si.displayDesc
                 : vq.shortDesc,
+            // 服务端标注该档位需要大会员（APP 侧对应 limit_watch_reason == 1）。
+            // 用于「仅 VIP 画质走试用通道」的分流判定。
+            'need_vip': si?.needVip ?? false,
           };
         }
       }
@@ -165,6 +168,8 @@ abstract final class PlayViewConverter {
           'new_description': qualityDesc[quality]!['new_description'],
           'display_desc': qualityDesc[quality]!['display_desc'],
           'codecs': qualityCodecs[quality]!,
+          // 交给 FormatItem.isVipLocked，供「仅 VIP 画质走试用通道」判定
+          'need_vip': qualityDesc[quality]!['need_vip'],
         },
     ];
 

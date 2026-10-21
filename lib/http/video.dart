@@ -444,7 +444,11 @@ abstract final class VideoHttp {
       duration: webDash.duration ?? appDash.duration,
       minBufferTime: webDash.minBufferTime ?? appDash.minBufferTime,
       video: merged,
-      audio: webDash.audio ?? appDash.audio,
+      // 音频优先取 APP 通道的：APP 音频与 APP 视频同源同签名
+      // （platform=android / os=mcdn 一致），换 CDN 时行为可预期；
+      // 若混用 Web 音频（platform=pc / os=<cdn>bv），它会走 Web 的
+      // 替换路径，os 与 host 不匹配导致 403 → 表现为有画面无声音或整体黑屏。
+      audio: appDash.audio ?? webDash.audio,
     );
     web.supportFormats = mergedFormats;
     web.acceptQuality = acceptQuality;

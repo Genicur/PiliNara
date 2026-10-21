@@ -72,23 +72,25 @@ abstract final class VideoUtils {
 
   /// PCDN 节点判定：这类直链的签名与节点绑定，换 host 必 403。
   ///
-  /// 实测（见 docs/cdn-setting-vs-unlimited-vip-quality.md）：
-  /// * `*.mcdn.bilivideo.*` 且路径 `/vN/resource/...`（query 里通常 os=mcdn）
-  ///   → 换 host 403；把 os 一起改掉仍 403。
-  /// * `upos-sz-*` / `*.edge.mountaintoys.cn` → 换 host 206，可正常替换。
+  /// **实测结论（BV1FGJd63Exr / BV1j5nj68E48 等，24 条直链逐条验证）**：
+  /// 能否替换 host **只取决于 host 类型，与 query 里的 `os` 值无关**：
   ///
-  /// 注意不能用「platform=android」整类判定：APP 通道下发的流里
-  /// upos/mountaintoys 型同样存在且可替换（HDR/4K 常是这种）。
+  /// | host 类型 | os 值 | 原样 | 换 host |
+  /// | --- | --- | --- | --- |
+  /// | `*.mcdn.bilivideo.*` | mcdn / coso1bv / hwo1bv | 200 | **0/16 全 403** |
+  /// | `*.edge.mountaintoys.cn` | mcdn | 200 | **8/8 全 200** |
+  ///
+  /// 所以：`mcdn` host 一律不可换；`mountaintoys` host 一律可换。
+  /// 早期按 `os` 判定是错的（mountaintoys 也会带 os=mcdn）。
+  ///
+  /// 另注意：mountaintoys 换 host 后，**请求头必须满足** UA 不能为空、
+  /// 也不能是完整 Chrome UA，且不能带 Referer（详见 BiliMediaHeaders）。
   static bool _isPcdnLockedUrl(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
     final host = uri.host.toLowerCase();
-    // 只有 mcdn 系列 host 才可能是 PCDN 锁定节点；
-    // upos-*、edge.mountaintoys.cn 等均可安全替换（实测 206）。
-    if (!host.contains('.mcdn.bilivideo.')) return false;
-    // 实测锁定的形态：{ip or node}.mcdn.bilivideo.* + /vN/resource/upgcxcode/...
-    // 这是 PCDN 节点，签名绑定了节点本身，换 host 必 403。
-    return _pcdnResourcePath.hasMatch(uri.path);
+    // mcdn 节点：签名与节点绑定，换任何 host 都 403
+    return host.contains('.mcdn.bilivideo.');
   }
 
   /// APP 通道直链的 CDN 处理。

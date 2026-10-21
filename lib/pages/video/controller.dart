@@ -948,7 +948,53 @@ class VideoDetailController extends GetxController
       audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
     }
 
+    // 诊断日志（临时）：把最终传给 mpv 的 URL 与取流来源完整打出来，
+    // 便于定位「选 CDN 后黑屏」到底是哪条 URL、走了哪个分支。
+    // 故意不包 kDebugMode：release 也要能看，定位完即移除。
+    _logCdnDiagnostics(firstVideo, currentVideoQa.code);
+
     playerInit();
+  }
+
+  /// 临时诊断：把取流结果写到文件，便于定位「选 CDN 后黑屏」。
+  /// 用文件而非 debugPrint：release 构建下 debugPrint 可能被吞。
+  void _logCdnDiagnostics(VideoItem firstVideo, int requestedQa) {
+    String describe(String? u) {
+      if (u == null) return 'null';
+      try {
+        final uri = Uri.parse(u);
+        final q = uri.queryParameters;
+        return 'host=${uri.host} port=${uri.hasPort ? uri.port : "-"} '
+            'os=${q['os'] ?? "-"} platform=${q['platform'] ?? "-"} '
+            'path=${uri.path.length > 44 ? '...${uri.path.substring(uri.path.length - 34)}' : uri.path}';
+      } catch (_) {
+        return u;
+      }
+    }
+
+    try {
+      final lines = <String>[
+        '===== [CDN诊断] ${DateTime.now()} =====',
+        'qn=$requestedQa cdnService=${VideoUtils.cdnService.name} '
+            'custom=${VideoUtils.customCDNUrl ?? "-"}',
+        'playUrls(${firstVideo.playUrls.length}):',
+        for (final u in firstVideo.playUrls) '  原始: ${describe(u)}',
+        '最终 videoUrl: ${describe(videoUrl)}',
+        '最终 audioUrl: ${describe(audioUrl)}',
+        '候选队列:',
+        for (final u in VideoUtils.cdnCandidates(firstVideo.playUrls))
+          '  ${describe(u)}',
+        '===== [CDN诊断] end =====',
+        '',
+      ];
+      final text = lines.join('\n');
+      debugPrint(text);
+      final dir = Directory(appSupportDirPath);
+      final f = File('${dir.path}/cdn_diag.log');
+      f.writeAsStringSync(text, mode: FileMode.append, flush: true);
+    } catch (_) {
+      // 诊断本身失败不影响播放
+    }
   }
 
   /// 起播后监听「是否真的播起来了」；长时间卡在缓冲态则触发 CDN 自愈。
@@ -957,7 +1003,8 @@ class VideoDetailController extends GetxController
   /// `isBuffering` 会转 false 且 `playerStatus` 变 playing；
   /// 若 8 秒后仍不 playing，基本可判定当前地址不可用（也可能是网络慢，
   /// 所以只触发一次，且自愈内部还会再做一次真实可达性探测）。
-  void _startCdnWatchdog(VideoItem firstVideo, AudioQuality? audioQa) {    if (VideoUtils.cdnService == CDNService.baseUrl &&
+  void _startCdnWatchdog(VideoItem firstVideo, AudioQuality? audioQa) {
+    if (VideoUtils.cdnService == CDNService.baseUrl &&
         VideoUtils.customCDNUrl == null) {
       return;
     }
@@ -1059,6 +1106,8 @@ class VideoDetailController extends GetxController
     Duration? seek = defaultST ?? playedTime;
     if (seek == .zero) seek = null;
     seek ??= getFirstSegment();
+    // 诊断日志（临时）：真正传给播放器的 URL 在这里，直接落盘便于排查。
+    _logCdnDiagnostics(firstVideo, currentVideoQa.value?.code ?? -1);
     await plPlayerController.setDataSource(
       isFileSource
           ? FileSource(

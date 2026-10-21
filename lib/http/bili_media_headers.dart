@@ -38,16 +38,37 @@ abstract final class BiliMediaHeaders {
   /// 播放器（mpv）用：按直链来源返回 `(userAgent, referer)`。
   /// APP 端直链返回空 referer（mpv 会把 `referrer` 属性置空，从而不发 Referer）。
   static (String userAgent, String referer) forPlayer(String url) {
-    if (isAndroidPlatformUrl(url)) {
+    if (_hasAndroidDirectLink(url)) {
       return (appUserAgent, '');
     }
     return (BrowserUa.pc, 'https://www.bilibili.com/');
   }
 
+  /// 判断媒体源里是否含 APP 通道直链（`platform=android`）。
+  ///
+  /// 视频 + 音频会被拼成 **mpv EDL 字符串**再交给播放器，形如：
+  /// ```
+  /// edl://!no_chapters;%650%https://xxx/upgcxcode/...?platform=android;!new_stream;...
+  /// ```
+  /// 这时直接对整串调用 [Uri.tryParse] 拿不到 query，`platform` 判定会失效，
+  /// 于是错用 Web 头（Chrome UA + Referer）→ APP 直链 403 → 黑屏。
+  /// 因此先把 EDL 内嵌的 URL 拆出来，只要其中有 APP 直链就走 APP 头。
+  static bool _hasAndroidDirectLink(String url) {
+    if (isAndroidPlatformUrl(url)) return true;
+    if (!url.startsWith('edl://')) return false;
+    for (final m in _edlUrlPattern.allMatches(url)) {
+      if (isAndroidPlatformUrl(m.group(0))) return true;
+    }
+    return false;
+  }
+
+  /// 匹配 EDL 里内嵌的 http(s) 地址（遇到 `;` 或空白即止）。
+  static final RegExp _edlUrlPattern = RegExp(r'https?://[^\s;]+');
+
   /// 下载器用：按直链来源返回附加请求头。
   /// APP 端直链只给 UA，不给 Referer。
   static Map<String, String> forDownload(String url) {
-    if (isAndroidPlatformUrl(url)) {
+    if (_hasAndroidDirectLink(url)) {
       return {'user-agent': appUserAgent};
     }
     return {

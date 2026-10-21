@@ -1,93 +1,36 @@
-# 报告：开启「无限试用会员画质」后 CDN 设置是否仍然生效？
+# 报告：「开启无限试用会员画质」后 CDN 设置为什么不生效
 
-> 结论先行：**这是设计约束，不是 bug。** 但原始的「换 host 必然 403」说法**过于绝对**——
-> 实测发现有一类 APP 直链是可以换 host 的，只是当前实现主动放弃了这条路。
-> 也就是说：**行为符合设计，但设计本身有一处可以改进的空间。**
+> **结论**：
+> 1. 用户看到的现象 —— **CDN 设置对播放无效 —— 是预期行为，不是 bug**。
+> 2. 但原因**不是**「APP 直链签名绑定 host、换 host 必然 403」。这个说法**被实测推翻**。
+> 3. 真正的原因：`getCdnUrl()` 对 `platform=android` 的直链**整类短路**（按 platform 参数判定，
+>    而非按 host/节点类型判定）。其中 `mcdn`（PCDN）型确实不能换，但 `upos` 型**能换且换完 206 可用**，
+>    被这条一刀切规则一起挡掉了 —— 这是**功能缺失（可以做到但没做）**，不是设计上做不到。
 >
-> 写于 2026-10-21。基线提交 `a02b18381`。实验脚本与原始数据见文末附录。
+> 写于 2026-10-21，基线提交 `a02b18381`（含 CDN 测速修复）。实验脚本与原始数据见附录。
 
 ---
 
-## 1. 问题
+## 1. 机制：CDN 设置到底做了什么
 
-用户反馈：开启「无限试用会员画质」（R9 开关）后，在 设置 → 视频设置 → CDN 设置 里
-选择任何 CDN，都不影响实际播放。
-
-疑问：这是 bug，还是预期行为？
-
----
-
-## 2. 先厘清机制：CDN 设置到底做了什么
-
-`CDN 设置` 的实现**不是**「让 B 站给你换一个节点」，而是：
-
-> 拿到播放地址后，**把 URL 的 host 替换成你选的镜像域名**，其它部分（路径与签名
-> `upsig`/`uparams`）原封不动。
+CDN 设置**不是**让 B 站换节点，而是拿到播放地址后**替换 URL 的 host**：
 
 ```dart
 // lib/utils/video_utils.dart:124
 return uri.replace(host: defaultCDNService.host).toString();
 ```
 
-因此 CDN 设置能否生效，取决于一个物理条件：
-**服务端签名是否绑定 host。** 绑定 → 换 host 后签名对不上 → 403；不绑定 → 换 host 可用。
+路径和签名参数（`upsig` / `uparams`）原样保留。所以能否生效取决于：
+**服务端签名是否接受"换过 host 的 URL"**。
 
 ---
 
-## 3. 实测：换 host 到底会不会 403
+## 2. 代码现状
 
-### 3.1 实验方法
-
-用真实账号实测（`app_access_token` + 完整的手机端 gRPC 指纹），复刻 PiliNara 的
-`PlayView` 请求，拿到真实的 `DashVideo.baseUrl`，然后：
-
-- 原样请求（对照组）
-- 把 host 替换成各 `upos-sz-mirror*` 镜像
-- 分别用「APP 头（无 Referer）」与「Web 头（带 Referer）」各测一遍
-
-### 3.2 结果：两类直链，行为完全相反
-
-对 `BV1j5nj68E48`（aid 117465090622706，cid 42860284135）取 APP 通道直链，
-共 27 条 URL，`platform` 全部是 `android`：
-
-| # | baseUrl host 类型 | 原样请求 | 换 host 后 | 换 host + Web 头 |
-|---|---|---|---|---|
-| 1 | `*.mcdn.bilivideo.cn`（PCDN） | **206** | **403**（cos/coso1/hw/hwo1/ali 全部） | 403 |
-| 2 | `*.mcdn.bilivideo.cn`（PCDN） | **206** | **403** | 403 |
-| 3 | `*.edge.mountaintoys.cn` | **206** | **206**（全部可用！） | 403 |
-| 4 | `*.mcdn.bilivideo.cn`（PCDN） | **206** | **403** | 403 |
-
-**关键发现（这是本次报告最重要的部分）：**
-
-1. **`mcdn`（PCDN）型 APP 直链**：换任何 host 都 403 → 与文档 §4.8 的描述一致，
-   「签名绑定 host」成立。
-2. **`edge.mountaintoys.cn` 型 APP 直链**：换 host 后**全部 206 可用**！
-   说明这类直链的签名**并不绑定 host**，理论上是可以换 CDN 的。
-3. 换 host 后**必须不带 Referer**（第 3 行：APP 头 206 / Web 头 403）——
-   这与文档 §4.8「APP 直链带 Referer 即 403」的结论一致。
-
-### 3.3 对照实验：Web 通道也分两类
-
-同一套方法测 Web 通道的直链（`platform=pc`）：
-
-| host 类型 | 原样 | 换 host |
-|---|---|---|
-| `*.mcdn.bilivideo.cn`（PCDN） | 206 | **403**（全部） |
-| `*.edge.mountaintoys.cn` | 206 | **206**（全部） |
-
-**这条对照非常重要**：连 Web 通道下，`mcdn` 型直链换 host 也是 403 的。
-所以「CDN 设置」这个功能**本来就不是对任何直链都有效**——它只在拿到
-`upos-sz-mirror*` / `edge.mountaintoys.cn` 这类节点时才真正起作用。
-（这也解释了为什么用户平时偶尔觉得 CDN 设置"有用"，偶尔觉得"没用"。）
-
----
-
-## 4. 代码是怎么处理的
-
-`lib/utils/video_utils.dart` 的 `getCdnUrl()` 开头有一段**一刀切短路**：
+`lib/utils/video_utils.dart` 的 `getCdnUrl()` 开头：
 
 ```dart
-// APP 通道（platform=android）签发的直链，签名与 host 绑定，
+// APP 通道（platform=android）签发的直链，签名（upsig/uparams）与 host 绑定，
 // 换任何 host 都会 403；且这些 PCDN/回源节点本身可用（只要请求不带 Referer）。
 // 因此原样返回，不做任何 CDN 替换。
 if (urls.isNotEmpty && BiliMediaHeaders.isAndroidPlatformUrl(urls.first)) {
@@ -95,134 +38,222 @@ if (urls.isNotEmpty && BiliMediaHeaders.isAndroidPlatformUrl(urls.first)) {
 }
 ```
 
-它的判定依据是 **`platform` 参数是否以 `android` 开头**，而不是 host 类型。
-
-于是产生了广度问题：
-
-- 对 `mcdn` 型 APP 直链 → 短路是**正确的**（换了确实 403）
-- 对 `mountaintoys` 型 APP 直链 → 短路是**过度保守**的（实测换了 206 可用）
-
-也就是说：**这个短路保护在语义上偏保守，把"能换的"也一起挡掉了。**
+判定条件是 **`platform` 参数以 `android` 开头**，与 host 类型、节点类型无关。
+只要命中，整个替换逻辑（包括用户选择的 CDN 枚举、自定义节点）都不会执行。
 
 ---
 
-## 5. 回答用户的问题
+## 3. 实测：换 host 到底会不会 403
 
-### 5.1 「开启会员试用后 CDN 设置还有用吗？」
+### 3.1 三类 APP 直链，三种结果
 
-**基本没用，但原因是双重的：**
+用真实 `app_access_token` + 完整手机端 gRPC 指纹复刻 `PlayView` 请求，
+对 `BV1j5nj68E48` 取得 27 条 APP 直链（`platform` 全为 `android`）：
 
-| 原因 | 说明 |
+| host 类型 | 样本 | 原样 | 只换 host | 换 host + 改 `os` |
+|---|---|---|---|---|
+| `*.mcdn.bilivideo.cn`（PCDN） | 18 条 | 206 | **403** | 403 |
+| `*.edge.mountaintoys.cn` | 若干 | 206 | **206** | — |
+| `upos-sz-*`（用户提供的 HDR 直链） | 1 条 | 206 | **206** | — |
+
+### 3.2 决定性样本：用户提供的真实 HDR Vivid 直链
+
+```
+host      = upos-sz-302ppio.bilivideo.com
+platform  = android
+os        = 302ppio
+gen       = playurlv3
+bvc       = vod
+uparams   = e,nbs,gen,os,platform,deadline,oi,og,trid,mid,uipk
+文件       = 36532584643_hr1-1-100170.m4s（HDR Vivid 档位）
+```
+
+对这条 URL 做 host 替换：
+
+| 替换目标 | 结果 |
 |---|---|
-| ① 设计层面 | `getCdnUrl()` 对 `platform=android` 的直链**整类短路**，直接返回原始 URL，CDN 选择完全不参与 |
-| ② 物理层面 | APP 通道下发的直链中，占比最大的 `mcdn`（PCDN）型**确实不能换 host**（换了 403） |
+| 原样（对照） | **206**，`Content-Range: bytes 0-1023/264154438` |
+| → `upos-sz-mirrorcos.bilivideo.com` | **206**（真实返回内容，非重定向） |
+| → `upos-sz-mirrorcoso1.bilivideo.com` | **206** |
+| → `upos-sz-mirrorhw.bilivideo.com` | **206** |
+| → `upos-sz-mirrorhwo1.bilivideo.com` | **206** |
+| → `upos-sz-mirrorali.bilivideo.com` | **206** |
 
-所以：**当前行为符合代码设计，不是运行时 bug**；但设计采用了"整类短路"的粗粒度策略，
-把本来可以换的 `mountaintoys` 型也排除了。
+**同一条 URL，带 `platform=android`，换 host 后全部可用。**
 
-### 5.2 这是 bug 吗？
+### 3.3 `mcdn` 型为什么 403：不是"签名绑 host"
 
-**结论：属于「功能受限」，不是「功能失效」。**
+对 `mcdn` 型直链（`os=mcdn`，`uparams` 含 `os`）做三组对照：
 
-严格定义上不是 bug，因为：
-- 代码有明确注释，是**有意的**设计决策
-- 短路后返回的原始直链**能正常播放**（206），不会让用户看不了
-- 不存在"本应工作但报错"的情形
+| 操作 | 结果 |
+|---|---|
+| 只换 host → upos 镜像 | 403 |
+| 换 host **且**把 `os=mcdn` 改成 `os=cos` | **仍然 403** |
 
-但有三点值得改进，我建议记为技术债而非立即修：
+如果 403 单纯是"签名绑 host"，那把 `os` 一起改掉应该能修复；但它依然 403。
+说明 `mcdn` 型 403 另有原因（PCDN 节点路径 `/v1/resource/...` 与 upos 的
+`/upgcxcode/...` 形态不同，签名覆盖了更多节点绑定的内容），
+**不能用"签名绑 host"来概括整类 APP 直链。**
 
-1. **判定粒度太粗**：应该按 host 类型判定（`mcdn` 短路、`mountaintoys`/`upos` 允许替换），
-   而不是按 `platform` 参数一刀切。这样 `mountaintoys` 型直链也能享受 CDN 加速。
-2. **UI 缺少说明**：CDN 设置页没有告诉用户"会员试用开启时此设置不生效"。
-   用户会以为设置坏了 —— 这正是你产生疑问的原因。
-3. **测速结果有误导性**：上一轮修好的 CDN 测速用的是 **Web 通道样本**
-   （因为只有 Web 样本才能换 host 测速），所以测出的速度是"Web 通道下这条 CDN 有多快"，
-   与实际播放走的 APP 通道**不是同一回事**。测速通过 ≠ 播放会用这条 CDN。
+### 3.4 对照实验：Web 通道也分两类
+
+同一套方法测 Web 通道（`platform=pc`）：
+
+| host 类型 | 原样 | 换 host |
+|---|---|---|
+| `*.mcdn.bilivideo.cn` | 206 | **403**（7 条样本，35 次替换 0 成功） |
+| `*.edge.mountaintoys.cn` | 206 | **206**（2 条样本，10 次替换 10 成功） |
+
+**重要旁证**：`mcdn` 型直链换 host 403 这件事，**Web 通道一模一样**。
+所以这不是"APP 通道特有的限制"，而是 **PCDN 节点的固有特性**。
+CDN 设置从设计上就只对 `upos` / `mountaintoys` 这类节点有效。
+
+---
+
+## 4. 直接回答用户的问题
+
+### Q：开启会员试用后，CDN 设置还有用吗？
+
+**对当前的实现：没用。** 但这是**代码主动跳过**的结果，不是物理上做不到。
+
+拆开来看是两层原因叠加：
+
+| 层次 | 结论 |
+|---|---|
+| 物理层 | APP 通道直链里，`mcdn`(PCDN) 型确实换 host 会 403（Web 通道同样如此）；但 `upos` 型、`mountaintoys` 型**换 host 可用** |
+| 代码层 | `getCdnUrl()` 按 `platform=android` 一刀切短路，**连能够替换的类型也一起跳过了** |
+
+### Q：这是 bug 吗？
+
+**严格判定：不是 bug，是功能缺失（feature gap）。**
+
+判定依据：
+- 代码有明确注释与意图，属**有意设计**，不是逻辑写错
+- 短路后返回原始直链，**播放正常**（206），不会导致"看不了"
+- 不存在"本应成功却报错"的运行期故障
+
+但它有**明确的改进空间**，因为实测证明：**`upos` 型 APP 直链是可以换 CDN 的**，
+而当前实现放弃了这部分能力。
+
+---
+
+## 5. 影响面
+
+1. **用户感知**：开启会员试用后 CDN 设置看起来"坏了" → 正是本次疑问的由来。
+2. **测速结果有误导性**：CDN 测速用的是 **Web 通道样本**（上一轮修复），
+   测出的速度是"Web 通道下该 CDN 多快"，与实际播放走的 APP 通道**不是一回事**。
+   测速通过 ≠ 播放会使用该 CDN。
+3. **功能落差**：HDR / 4K 直链恰好常是 `upos` 型（如本例 `upos-sz-302ppio`），
+   也就是**最需要 CDN 加速的高码率档位**，反而被一律跳过。
 
 ---
 
 ## 6. 建议
 
-### 6.1 立即可做（低风险，改善认知）
+### 6.1 立即做（低风险）：补 UI 说明
 
-在 `CDN 设置` 对话框顶部加一行说明，条件渲染：
+在 CDN 设置对话框顶部条件渲染一行提示：
 
 ```dart
 if (Pref.unlimitedVipQuality)
   Text('「无限试用会员画质」已开启：通过 APP 通道取流，'
-       '直链签名与节点绑定，CDN 设置对播放不生效。'
-       '如需按 CDN 加速，请关闭该开关使用 Web 通道。');
+       'CDN 设置对播放不生效。如需按 CDN 加速，请关闭该开关使用 Web 通道。');
 ```
 
-同时在测速结果的说明里补一句"测速基于 Web 通道样本，仅供参考"。
+并在测速区说明"基于 Web 通道样本，仅供参考"。
+这一步能消除"设置坏了"的误解，且不碰取流逻辑。
 
-### 6.2 可选优化（需要实测验证，风险中等）
+### 6.2 建议做（中等风险，需联网测试）：按节点类型判定
 
-把 `getCdnUrl()` 的短路条件从「`platform=android`」收窄到「`platform=android` **且** host 属于不可替换类型」：
+把短路条件从「`platform=android`」收窄为「`platform=android` **且 host 不可替换」：
 
 ```dart
-if (urls.isNotEmpty &&
-    BiliMediaHeaders.isAndroidPlatformUrl(urls.first) &&
-    !_isReplaceableMediaHost(Uri.parse(urls.first).host)) {
-  return urls.first;
+if (urls.isNotEmpty) {
+  final first = urls.first;
+  final host = Uri.tryParse(first)?.host ?? '';
+  // 仅跳过 PCDN 节点：实测 mcdn 型换 host 必 403，upos/mountaintoys 型可换
+  if (BiliMediaHeaders.isAndroidPlatformUrl(first) &&
+      !_isReplaceableMediaHost(host)) {
+    return first;
+  }
 }
 ```
 
-注意：`_isReplaceableMediaHost()` 目前的白名单里包含 `.mcdn.bilivideo.*`，
-而实测 `mcdn` 是**不可替换**的，白名单与实测结论有冲突，改之前必须先把白名单校正，
-并补一组联网测试（`mcdn` 期望 403 / `mountaintoys` 期望 206）。
+**前提修正（重要）**：现有的 `_isReplaceableMediaHost()` 白名单里包含
+`.mcdn.bilivideo.com` / `.mcdn.bilivideo.cn` / `.mcdn.bilivideo.net`，
+与本次实测**冲突**（`mcdn` 是不可替换的）。必须先把这三个后缀从白名单移除，
+否则放开短路后会大面积 403。
 
-**不建议现在就改**：这块牵涉签名与节点行为，B 站随时可能调整，贸然放开会让部分用户
-从"能播"变成"403 看不了"。建议先只做 6.1 的提示。
+配套需要补的测试（联网，带真实 token）：
+- `mcdn` 型 → 期望 403（守住不回归）
+- `upos-sz-*` 型 → 期望 206
+- `mountaintoys` 型 → 期望 206
+
+### 6.3 不建议做
+
+不要"直接把短路删掉"。`mcdn` 型在 APP 通道里占多数（本例 27 条里 18 条），
+一旦全部放开，会让大部分视频从"能播"变成"403 看不了"。
 
 ---
 
-## 7. 附录：实验原始数据
+## 7. 附录：原始实验数据
 
-### 7.1 APP 通道（gRPC PlayView，真实 token）
+### 7.1 APP 通道 PlayView（真实 token）
 
 ```
 请求 PlayView: aid=117465090622706 cid=42860284135
   HTTP 200  bytes=19569  grpc-status=0
   提取到 27 条 URL, platform 分布: {'android': 27}
+  其中 mcdn 型 18 条, 其它 9 条
 
-[1] host=xy116x196x147x144xy.mcdn.bilivideo.cn platform=android
-    原样 + APP头(无Referer)      : 206
-    原样 + Web头(带Referer)      : 206
-    换cos/coso1/hw/hwo1/ali      : 403 / 403（全部）
+mcdn 型样本: host=xy119x188x217x14xy.mcdn.bilivideo.cn
+  os=mcdn  uparams=e,trid,platform,deadline,uipk,gen,og,oi,mid,nbs,os
+    只换 host → upos-sz-mirrorcos  403
+    只换 host → upos-sz-mirrorhw   403
+    换host+改os=cos                403
+    换host+改os=hw                 403
 
-[3] host=h2i438c.edge.mountaintoys.cn platform=android
-    原样 + APP头(无Referer)      : 206
-    原样 + Web头(带Referer)      : 403
-    换cos    + APP头 / Web头 : 206 / 403
-    换coso1  + APP头 / Web头 : 206 / 403
-    换hw     + APP头 / Web头 : 206 / 403
-    换hwo1   + APP头 / Web头 : 206 / 403
-    换ali    + APP头 / Web头 : 206 / 403
+mountaintoys 型样本: host=h2i438c.edge.mountaintoys.cn platform=android
+    原样 + APP头(无Referer)  206
+    原样 + Web头(带Referer)  403
+    换 cos/coso1/hw/hwo1/ali  206 / 206 / 206 / 206 / 206（APP头）
+                              403（Web头，全部）
 ```
 
-### 7.2 Web 通道（对照组，platform=pc）
+### 7.2 用户提供的 upos 型 HDR 直链
 
 ```
-BV1j5nj68E48 q=32 host=xy116x196x147x144xy.mcdn.bilivideo.cn  kind=mcdn(PCDN)
-  原样=206  cos=403  coso1=403  hw=403  hwo1=403  ali=403
-... (共 7 条 mcdn 型：原样 7/7 可用，换host 0/35 可用)
+host=upos-sz-302ppio.bilivideo.com  os=302ppio  platform=android
+gen=playurlv3  bvc=vod  bw=21345813
+uparams=e,nbs,gen,os,platform,deadline,oi,og,trid,mid,uipk
 
-BV1fK4y1t7hj q=32 host=b-baaa45l...edge.mountaintoys.cn  kind=mountaintoys
-  原样=206  cos=206  coso1=206  hw=206  hwo1=206  ali=206
-... (共 2 条 mountaintoys 型：原样 2/2 可用，换host 10/10 可用)
+原样请求:
+  206, Content-Range: bytes 0-1023/264154438
+  跟随重定向落点: aiafgqkaks5iqgrx.nexusedgeio.com:35671
 
-统计：
-  mcdn(PCDN)     原样 7/7 可用   换host 0/35 可用
-  mountaintoys   原样 2/2 可用   换host 10/10 可用
+换 host（APP 头，无 Referer）:
+  cos    206（真实内容，无重定向）
+  coso1  206
+  hw     206
+  hwo1   206
+  ali    206
+带 Web 头（Referer）时全部 403 —— 与 §4.8「APP 直链带 Referer 即 403」一致
+```
+
+### 7.3 Web 通道对照（platform=pc）
+
+```
+mcdn(PCDN) 型：原样 7/7 可用，换 host 0/35 可用
+mountaintoys 型：原样 2/2 可用，换 host 10/10 可用
 ```
 
 ---
 
 ## 8. 一句话总结
 
-> 「开启会员试用后 CDN 设置无效」**是预期行为，不是 bug**——因为 CDN 设置本质是替换 URL 的 host，
-> 而 APP 通道主流的 `mcdn`（PCDN）直链签名绑定 host，换了就 403；代码因此对整类 APP 直链短路。
-> 但实测显示 `edge.mountaintoys.cn` 型 APP 直链其实可以换 host（206），
-> 当前实现把它也一并短路了，属于**偏保守的设计**，可记为技术债。
-> 建议眼下只补 UI 提示（告知用户此设置在该开关下不生效），不要动取流逻辑。
+> 「开启会员试用后 CDN 设置无效」**是代码有意为之的行为，不是运行期 bug**；
+> 但它的**判定依据不准确** —— 代码按 `platform=android` 一刀切跳过，
+> 而实测显示 `upos` 型与 `mountaintoys` 型的 APP 直链**换 host 后仍是 206 可用**，
+> 真正不能换的是 `mcdn`(PCDN) 型（Web 通道同样不能换）。
+> 因此这是**可以改进的功能缺失**：收窄判定条件即可让高码率（HDR/4K）档位也用上 CDN 加速，
+> 但必须先把 `_isReplaceableMediaHost` 白名单里的 `.mcdn.*` 移除，并补联网测试防止回归。

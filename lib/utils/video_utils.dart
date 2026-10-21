@@ -36,6 +36,9 @@ abstract final class VideoUtils {
   // host 首段为 API/上报类前缀的域名不参与自定义节点替换
   static final _blockedHostPrefix = RegExp(r'^(?:bvc|data|pbp|api)\w*\.');
 
+  /// PCDN 节点路径形态：`/vN/resource/upgcxcode/...`
+  static final _pcdnResourcePath = RegExp(r'^/v\d+/resource/');
+
   static bool _isReplaceableMediaHost(String host) {
     final lower = host.toLowerCase();
     if (_blockedHostPrefix.hasMatch(lower)) {
@@ -43,6 +46,68 @@ abstract final class VideoUtils {
     }
     return lower == 'edge.mountaintoys.cn' ||
         _mediaHostSuffixes.any(lower.endsWith);
+  }
+
+  /// PCDN 节点判定：这类直链的签名与节点绑定，换 host 必 403。
+  ///
+  /// 实测（见 docs/cdn-setting-vs-unlimited-vip-quality.md）：
+  /// * `*.mcdn.bilivideo.*` 且路径 `/vN/resource/...`（query 里通常 os=mcdn）
+  ///   → 换 host 403；把 os 一起改掉仍 403。
+  /// * `upos-sz-*` / `*.edge.mountaintoys.cn` → 换 host 206，可正常替换。
+  ///
+  /// 注意不能用「platform=android」整类判定：APP 通道下发的流里
+  /// upos/mountaintoys 型同样存在且可替换（HDR/4K 常是这种）。
+  static bool _isPcdnLockedUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host.toLowerCase();
+    // 只有 mcdn 系列 host 才可能是 PCDN 锁定节点；
+    // upos-*、edge.mountaintoys.cn 等均可安全替换（实测 206）。
+    if (!host.contains('.mcdn.bilivideo.')) return false;
+    // 实测锁定的形态：{ip or node}.mcdn.bilivideo.* + /vN/resource/upgcxcode/...
+    // 这是 PCDN 节点，签名绑定了节点本身，换 host 必 403。
+    return _pcdnResourcePath.hasMatch(uri.path);
+  }
+
+  /// APP 通道直链的 CDN 处理。
+  ///
+  /// 把「能否换 host」的判定从 platform 参数收窄到节点类型：
+  /// * 遇到 PCDN 型直链（或整批都是 PCDN）时，原样返回；
+  /// * upos / mountaintoys 型则按所选 CDN 做 host 替换。
+  ///
+  /// 混合批次的策略：优先在可替换的那几条里挑，避免因为第一条是 PCDN
+  /// 就把整批都放弃替换。
+  static String _appUrlForCdn(
+    Iterable<String> urls, {
+    required CDNService service,
+    String? customHost,
+    required bool isAudio,
+  }) {
+    final list = urls.toList(growable: false);
+    if (list.isEmpty) return '';
+
+    // 没有选择任何 CDN 替换时，维持原有行为
+    if (customHost == null && service == CDNService.baseUrl) {
+      return list.first;
+    }
+
+    // 优先用可替换的直链
+    final replaceable = list.where((u) => !_isPcdnLockedUrl(u)).toList();
+    if (replaceable.isEmpty) {
+      // 整批都是 PCDN 型：签名锁死，换 host 必 403，原样返回
+      return list.first;
+    }
+
+    final picked = replaceable.first;
+    if (customHost != null) {
+      return Uri.parse(picked).replace(host: customHost).toString();
+    }
+    if (service == CDNService.backupUrl || (isAudio && disableAudioCDN)) {
+      return picked;
+    }
+    final serviceHost = service.host;
+    if (serviceHost == null) return picked;
+    return Uri.parse(picked).replace(host: serviceHost).toString();
   }
 
   /// 完整 URL 提取 host；纯 host 不得含路径/查询/锚点；空白视为 null
@@ -91,11 +156,21 @@ abstract final class VideoUtils {
       customHost = null;
     }
 
-    // APP 通道（platform=android）签发的直链，签名（upsig/uparams）与 host 绑定，
-    // 换任何 host 都会 403；且这些 PCDN/回源节点本身可用（只要请求不带 Referer）。
-    // 因此原样返回，不做任何 CDN 替换。
+    // APP 通道（platform=android）签发的直链分两类，处理方式不同
+    // （实测数据见 docs/cdn-setting-vs-unlimited-vip-quality.md）：
+    //  * PCDN 型（`*.mcdn.bilivideo.*`，query 里 os=mcdn、路径形如 /vN/resource/...）：
+    //    签名与节点绑定，换任何 host 都会 403，必须原样返回。
+    //  * `upos-sz-*` / `*.edge.mountaintoys.cn` 型：签名**不**绑定 host，
+    //    换 host 后仍返回 206，可以像 Web 直链一样享受 CDN 替换。
+    // 早期实现按 platform 一刀切整类短路，把这些本可替换的档位（恰恰是
+    // HDR/4K 这类高码率流）也一起跳过了，这里改为按节点类型判定。
     if (urls.isNotEmpty && BiliMediaHeaders.isAndroidPlatformUrl(urls.first)) {
-      return urls.first;
+      return _appUrlForCdn(
+        urls,
+        service: defaultCDNService,
+        customHost: customHost,
+        isAudio: isAudio,
+      );
     }
 
     if (customHost == null && defaultCDNService == CDNService.baseUrl) {

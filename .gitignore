@@ -188,6 +188,7 @@ test*
 !/test/utils/app_cdn_replace_test.dart
 !/test/utils/cdn_app_sample_test.dart
 !/test/utils/vip_quality_gate_test.dart
+!/test/utils/cdn_port_reset_test.dart
 !/test/danmaku_mask_geometry_test.dart
 !/test/pages/search_panel/keyword_filter_test.dart
 /pubspec_overrides.yaml

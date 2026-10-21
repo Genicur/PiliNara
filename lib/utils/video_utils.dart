@@ -40,6 +40,27 @@ abstract final class VideoUtils {
   /// PCDN 节点路径形态：`/vN/resource/upgcxcode/...`
   static final _pcdnResourcePath = RegExp(r'^/v\d+/resource/');
 
+  /// 把 URL 的 host 换成 [newHost]，并**丢弃原有的非标准端口**。
+  ///
+  /// 这个细节很关键：B 站 APP 通道下发的直链常见形如
+  /// `xxx.edge.mountaintoys.cn:4483/upgcxcode/...`，而 upos 镜像节点
+  /// （`upos-sz-mirrorhw.bilivideo.com` 等）只监听默认端口。
+  /// 若用 `Uri.replace(host:)` 直接换 host，Dart 会**保留 :4483**，
+  /// 结果请求 `upos-sz-mirrorhw.bilivideo.com:4483` 直接连接失败 → 播放卡死。
+  ///
+  /// 实测：同一 URL 保留 :4483 为 URLError，去掉端口后返回 206。
+  /// 因此替换 host 时必须一并重置端口。
+  ///
+  /// 注意 `Uri.replace(port: null)` **无效**（实测仍保留原端口），
+  /// 必须重建 Uri 才能丢掉端口。
+  static Uri _replaceHost(Uri uri, String newHost) => Uri(
+    scheme: uri.scheme.isEmpty ? 'https' : uri.scheme,
+    host: newHost,
+    path: uri.path,
+    query: uri.hasQuery ? uri.query : null,
+    fragment: uri.hasFragment ? uri.fragment : null,
+  );
+
   static bool _isReplaceableMediaHost(String host) {
     final lower = host.toLowerCase();
     if (_blockedHostPrefix.hasMatch(lower)) {
@@ -101,14 +122,14 @@ abstract final class VideoUtils {
 
     final picked = replaceable.first;
     if (customHost != null) {
-      return Uri.parse(picked).replace(host: customHost).toString();
+      return _replaceHost(Uri.parse(picked), customHost).toString();
     }
     if (service == CDNService.backupUrl || (isAudio && disableAudioCDN)) {
       return picked;
     }
     final serviceHost = service.host;
     if (serviceHost == null) return picked;
-    return Uri.parse(picked).replace(host: serviceHost).toString();
+    return _replaceHost(Uri.parse(picked), serviceHost).toString();
   }
 
   /// 取流的候选 URL 队列：按优先级依次尝试，最后一个必定是「原始直链」。
@@ -283,13 +304,13 @@ abstract final class VideoUtils {
           mcdnUpgcxcode = url;
         } else {
           if (customHost != null) {
-            return uri.replace(host: customHost).toString();
+            return _replaceHost(uri, customHost).toString();
           }
           if (defaultCDNService == CDNService.backupUrl ||
               (isAudio && disableAudioCDN)) {
             return url;
           }
-          return uri.replace(host: defaultCDNService.host).toString();
+          return _replaceHost(uri, defaultCDNService.host!).toString();
         }
       }
 
@@ -324,11 +345,12 @@ abstract final class VideoUtils {
     if (mcdnUpgcxcode != null) {
       final uri = Uri.parse(mcdnUpgcxcode);
       if (customHost != null && _isReplaceableMediaHost(uri.host)) {
-        return uri.replace(host: customHost).toString();
+        return _replaceHost(uri, customHost).toString();
       }
-      return uri
-          .replace(host: defaultCDNService.host ?? CDNService.ali.host)
-          .toString();
+      return _replaceHost(
+        uri,
+        defaultCDNService.host ?? CDNService.ali.host!,
+      ).toString();
     }
     return mcdnTf == null
         ? last

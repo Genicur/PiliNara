@@ -56,18 +56,11 @@ abstract final class GrpcReq {
     GeneratedMessage request,
     T Function(Uint8List) grpcParser, {
     bool isolate = false,
-    Map<String, String>? grpcHeaders,
   }) async {
     final response = await Request().post<Uint8List>(
       HttpString.appBaseUrl + url,
       data: compressProtobuf(request.writeToBuffer()),
-      options: grpcHeaders == null
-          ? options
-          : Options(
-              contentType: 'application/grpc',
-              responseType: ResponseType.bytes,
-              extra: {'grpcHeaders': grpcHeaders},
-            ),
+      options: options,
     );
 
     if (response.data case final Map map) {

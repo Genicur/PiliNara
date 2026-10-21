@@ -7,8 +7,6 @@ import 'package:PiliPlus/pages/common/slide/common_slide_page.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
-import 'package:PiliPlus/utils/storage.dart';
-import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -50,25 +48,14 @@ class _ViewPointsPageState extends State<ViewPointsPage>
         child: Row(
           children: [
             const SizedBox(width: 16),
-            const Expanded(
-              child: Text('分段信息', style: TextStyle(fontSize: 16)),
-            ),
-            const Text('分段进度条 ', style: TextStyle(fontSize: 16)),
+            const Expanded(child: Text('分段信息', style: TextStyle(fontSize: 16))),
             Obx(
               () => Transform.scale(
                 alignment: Alignment.centerLeft,
                 scale: 0.8,
                 child: Switch(
                   value: videoDetailController.showVP.value,
-                  onChanged: (value) {
-                    videoDetailController.showVP.call(value);
-                    if (plPlayerController?.tempPlayerConf != true) {
-                      GStorage.setting.put(
-                        SettingBoxKey.showViewPointsOverlay,
-                        value,
-                      );
-                    }
-                  },
+                  onChanged: videoDetailController.showVP.call,
                 ),
               ),
             ),

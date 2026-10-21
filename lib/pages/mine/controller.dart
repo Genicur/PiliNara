@@ -1,6 +1,4 @@
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
-import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart'
-    show RefreshIndicatorState;
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
@@ -18,8 +16,6 @@ import 'package:PiliPlus/models_new/later/data.dart';
 import 'package:PiliPlus/models_new/later/list.dart';
 import 'package:PiliPlus/models_new/sub/sub/data.dart';
 import 'package:PiliPlus/models_new/sub/sub/list.dart';
-import 'package:PiliPlus/pages/common/common_controller.dart'
-    show ScrollOrRefreshMixin;
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -32,27 +28,12 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
-import 'package:material_ui/material_ui.dart' hide RefreshIndicatorState;
+import 'package:material_ui/material_ui.dart';
 
-class MineController extends GetxController
-    with AccountMixin, ScrollOrRefreshMixin {
+class MineController extends GetxController with AccountMixin {
   @override
   AccountService accountService = Get.find<AccountService>();
 
-  @override
-  final ScrollController scrollController = ScrollController();
-
-  final GlobalKey<RefreshIndicatorState> refreshKey =
-      GlobalKey<RefreshIndicatorState>();
-
-  @override
-  Future<void> showRefresh() => refreshKey.currentState?.show() ?? onRefresh();
-
-  @override
-  void onClose() {
-    scrollController.dispose();
-    super.onClose();
-  }
   // 用户信息 头像、昵称、lv
   final Rx<UserInfoData> userInfo = UserInfoData().obs;
   // 用户状态 动态、关注、粉丝
@@ -317,7 +298,6 @@ class MineController extends GetxController
     }
   }
 
-  @override
   Future<void> onRefresh({bool isManual = true}) {
     if (!accountService.isLogin.value) {
       return Future.syncValue(null);

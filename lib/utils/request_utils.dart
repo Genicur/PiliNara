@@ -330,10 +330,6 @@ abstract final class RequestUtils {
             clearCookie: true,
           );
           final isSuccess = res.isSuccess;
-          if (isSuccess) {
-            SmartDialog.showToast('动态检查通过');
-            return;
-          }
           showDialog(
             context: Get.context!,
             barrierDismissible: isManual,

@@ -7,7 +7,6 @@ import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/download/bili_download_media_file_info.dart';
-import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
@@ -17,7 +16,7 @@ abstract final class DownloadHttp {
   static const String referer = "https://www.bilibili.com/";
   static const String userAgent = "Bilibili Freedoooooom/MarkII";
 
-  static Future<DownloadVideoUrlResult> getVideoUrl({
+  static Future<BiliDownloadMediaInfo> getVideoUrl({
     required BiliDownloadEntryInfo entry,
     SourceInfo? source,
     PageInfo? pageData,
@@ -110,15 +109,12 @@ abstract final class DownloadHttp {
           ];
           entry.hasDashAudio = true;
         }
-        return DownloadVideoUrlResult(
-          mediaFileInfo: Type2(
-            duration: dash.duration!,
-            video: [videoFile],
-            audio: audioFileList,
-            referer: referer,
-            userAgent: userAgent,
-          ),
-          clipInfoList: response.clipInfoList,
+        return Type2(
+          duration: dash.duration!,
+          video: [videoFile],
+          audio: audioFileList,
+          referer: referer,
+          userAgent: userAgent,
         );
       } else {
         final first = response.durl!.first;
@@ -158,45 +154,32 @@ abstract final class DownloadHttp {
           ),
         ];
 
-        return DownloadVideoUrlResult(
-          mediaFileInfo: Type1(
-            from: pageData?.from ?? ep?.from,
-            quality: entry.preferedVideoQuality,
-            typeTag: entry.typeTag,
-            description: description,
-            playerCodecConfigList: playerCodecConfigList,
-            segmentList: segmentList,
-            parseTimestampMilli: 0,
-            availablePeriodMilli: 0,
-            isDownloaded: false,
-            isResolved: true,
-            timeLength: 0,
-            marlinToken: '',
-            videoCodecId: 0,
-            videoProject: true,
-            format: response.format!,
-            playerError: 0,
-            needVip: false,
-            needLogin: false,
-            intact: false,
-            referer: referer,
-            userAgent: userAgent,
-          ),
-          clipInfoList: response.clipInfoList,
+        return Type1(
+          from: pageData?.from ?? ep?.from,
+          quality: entry.preferedVideoQuality,
+          typeTag: entry.typeTag,
+          description: description,
+          playerCodecConfigList: playerCodecConfigList,
+          segmentList: segmentList,
+          parseTimestampMilli: 0,
+          availablePeriodMilli: 0,
+          isDownloaded: false,
+          isResolved: true,
+          timeLength: 0,
+          marlinToken: '',
+          videoCodecId: 0,
+          videoProject: true,
+          format: response.format!,
+          playerError: 0,
+          needVip: false,
+          needLogin: false,
+          intact: false,
+          referer: referer,
+          userAgent: userAgent,
         );
       }
     } else {
       throw res.toString();
     }
   }
-}
-
-class DownloadVideoUrlResult {
-  final BiliDownloadMediaInfo mediaFileInfo;
-  final List<SegmentItemModel>? clipInfoList;
-
-  const DownloadVideoUrlResult({
-    required this.mediaFileInfo,
-    this.clipInfoList,
-  });
 }

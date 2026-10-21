@@ -1,10 +1,7 @@
 import 'dart:math' show max;
 
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
-import 'package:PiliPlus/models/common/dm_chart_source.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
-import 'package:PiliPlus/pages/setting/pages/danmaku_merge_setting.dart';
-import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/filtering_text.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -23,13 +20,6 @@ List<SettingsModel> get dmSettings => [
     leading: Icon(CustomIcons.dm_settings),
     setKey: SettingBoxKey.enableShowDanmaku,
     defaultVal: true,
-  ),
-  const SwitchModel(
-    title: '智能防挡',
-    subtitle: '让弹幕避开画面中的人物（部分视频支持）',
-    leading: Icon(Icons.person_off_outlined),
-    setKey: SettingBoxKey.enableDanmakuMask,
-    defaultVal: false,
   ),
   if (PlatformUtils.isMobile)
     const SwitchModel(
@@ -55,34 +45,12 @@ List<SettingsModel> get dmSettings => [
     setKey: SettingBoxKey.showVipDanmaku,
     defaultVal: true,
   ),
-  NormalModel(
+  const SwitchModel(
     title: '合并弹幕',
-    getSubtitle: () {
-      final enabled = Pref.mergeDanmaku;
-      if (!enabled) return '已关闭';
-      final window = Pref.mergeDanmakuWindowSeconds;
-      final crossMode = Pref.mergeDanmakuCrossMode ? '跨类型' : '同类型';
-      final enlarge = Pref.danmakuEnlarge
-          ? '放大门槛: ${Pref.danmakuEnlargeThreshold}'
-          : '字号放大: 关';
-      return '时间窗: ${window}s, $crossMode, $enlarge';
-    },
-    leading: const Icon(Icons.merge),
-    onTap: (context, setState) async {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => const DanmakuMergeSettingPage(),
-        ),
-      );
-      setState();
-    },
-  ),
-  NormalModel(
-    title: '高能进度条',
-    leading: const Icon(Icons.show_chart),
-    getSubtitle: () =>
-        '当前:「${Pref.dmChartSource.label}」\n显示视频弹幕热度趋势；官方无数据时可使用弹幕密度生成',
-    onTap: _showDmChartSourceDialog,
+    subtitle: '合并一段时间内获取到的相同弹幕',
+    leading: Icon(Icons.merge),
+    setKey: SettingBoxKey.mergeDanmaku,
+    defaultVal: false,
   ),
 ];
 
@@ -126,26 +94,4 @@ void _showDmHeightDialog(BuildContext context, VoidCallback setState) {
       ],
     ),
   );
-}
-
-Future<void> _showDmChartSourceDialog(
-  BuildContext context,
-  VoidCallback setState,
-) async {
-  final res = await showDialog<DmChartSource>(
-    context: context,
-    builder: (context) => SelectDialog<DmChartSource>(
-      title: '高能进度条',
-      value: Pref.dmChartSource,
-      values: DmChartSource.values.map((e) => (e, e.label)).toList(),
-      subtitleBuilder: (context, index) => Text(
-        DmChartSource.values[index].desc,
-        style: TextTheme.of(context).bodySmall,
-      ),
-    ),
-  );
-  if (res != null) {
-    await GStorage.setting.put(SettingBoxKey.dmChartSource, res.index);
-    setState();
-  }
 }

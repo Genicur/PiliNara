@@ -20,7 +20,6 @@ import 'dart:io' show Platform;
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/image_grid/image_grid_builder.dart';
 import 'package:PiliPlus/common/widgets/image_viewer/gallery_viewer.dart';
@@ -150,38 +149,33 @@ class ImageGridView extends StatelessWidget {
     showMenu(
       context: context,
       position: PageUtils.menuPosition(offset),
-      clipBehavior: Clip.antiAlias,
       items: [
         if (PlatformUtils.isMobile)
-          CustomPopupMenuItem<void>(
+          PopupMenuItem(
             height: 42,
             onTap: () => ImageUtils.onShareImg(item.url),
             child: const Text('分享', style: TextStyle(fontSize: 14)),
           ),
-        CustomPopupMenuItem<void>(
-          height: 42,
-          onTap: () => ImageUtils.copyImg(item.url),
-          child: const Text('复制图片', style: TextStyle(fontSize: 14)),
-        ),
-        CustomPopupMenuItem<void>(
+        PopupMenuItem(
           height: 42,
           onTap: () => ImageUtils.downloadImg([item.url]),
           child: const Text('保存图片', style: TextStyle(fontSize: 14)),
         ),
         if (PlatformUtils.isDesktop)
-          CustomPopupMenuItem<void>(
+          PopupMenuItem(
             height: 42,
             onTap: () => PageUtils.launchURL(item.url),
             child: const Text('网页打开', style: TextStyle(fontSize: 14)),
           ),
         if (picArr.length > 1)
-          CustomPopupMenuItem<void>(
+          PopupMenuItem(
+            height: 42,
             onTap: () =>
                 ImageUtils.downloadImg(picArr.map((item) => item.url).toList()),
             child: const Text('保存全部', style: TextStyle(fontSize: 14)),
           ),
         if (item.isLivePhoto)
-          CustomPopupMenuItem<void>(
+          PopupMenuItem(
             height: 42,
             onTap: () => ImageUtils.downloadLivePhoto(
               url: item.url,

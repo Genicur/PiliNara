@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import 'package:PiliPlus/common/widgets/badge.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recognizer.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -290,26 +289,9 @@ class _ArticlePageState extends CommonDynPageState<ArticlePage>
         onPressed: () => PageUtils.inAppWebview(controller.url),
         icon: const Icon(Icons.open_in_browser_outlined, size: 19),
       ),
-      StaticPopupMenuButton(
+      PopupMenuButton(
         icon: const Icon(Icons.more_vert, size: 19),
         itemBuilder: (BuildContext context) => <PopupMenuEntry>[
-          if (controller.commentType == 12)
-            PopupMenuItem(
-              onTap: controller.actionCoin,
-              child: Obx(() {
-                final color = controller.hasCoin
-                    ? theme.colorScheme.primary
-                    : null;
-                return Row(
-                  spacing: 10,
-                  mainAxisSize: .min,
-                  children: [
-                    Icon(FontAwesomeIcons.b, size: 19, color: color),
-                    Text('投币', style: TextStyle(color: color)),
-                  ],
-                );
-              }),
-            ),
           PopupMenuItem(
             onTap: () => ShareUtils.shareText(controller.url),
             child: const Row(

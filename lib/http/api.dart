@@ -49,10 +49,6 @@ abstract final class Api {
   // https://api.bilibili.com/x/web-interface/archive/like
   // static const String likeVideo = '/x/web-interface/archive/like';
 
-  /// web端点赞接口（无access_key时fallback）
-  static const String likeVideoWeb = '/x/web-interface/archive/like';
-
-
   // 改用app端点赞接口
   static const String likeVideo = '${HttpString.appBaseUrl}/x/v2/view/like';
   //判断视频是否被点赞（双端）Get
@@ -80,10 +76,6 @@ abstract final class Api {
   /// select_like	num	是否附加点赞	非必要	0：不点赞 1：同时点赞 默认为0
   // csrf	str	CSRF Token（位于cookie）	必要
   // https://api.bilibili.com/x/web-interface/coin/add
-
-  /// web端投币接口（无access_key时fallback）
-  static const String coinVideoWeb = '/x/web-interface/coin/add';
-
   // static const String coinVideo = '/x/web-interface/coin/add';
 
   // 改用app端投币接口
@@ -287,9 +279,6 @@ abstract final class Api {
   static const String roomEntryAction =
       '${HttpString.liveBaseUrl}/xlive/web-room/v1/index/roomEntryAction';
 
-  static const String mobileHeartBeat =
-      'https://live-trace.bilibili.com/xlive/data-interface/v1/heartbeat/mobileHeartBeat';
-
   static const String mediaListHistory = '/x/v1/medialist/history';
 
   // 查询视频分P列表 (avid/bvid转cid)
@@ -423,7 +412,7 @@ abstract final class Api {
 
   // github 获取最新版
   static const String latestApp =
-      'https://api.github.com/repos/Starfallan/PiliNara/releases';
+      'https://api.github.com/repos/bggRGjQaUbCoE/PiliPlus/releases';
 
   // 多少人在看
   // https://api.bilibili.com/x/player/online/total?aid=913663681&cid=1203559746&bvid=BV1MM4y1s7NZ&ts=56427838
@@ -620,8 +609,6 @@ abstract final class Api {
 
   static const String oauth2AccessToken =
       '${HttpString.passBaseUrl}/x/passport-login/oauth2/access_token';
-
-  static const String memberWebAccount = '/x/member/web/account';
 
   /// 密码加密密钥
   /// disable_rcmd
@@ -899,8 +886,6 @@ abstract final class Api {
 
   static const String coinLog = '/x/member/web/coin/log';
 
-  static const String coinTodayExp = '/x/web-interface/coin/today/exp';
-
   static const String dynTopicRcmd = '/x/topic/web/dynamic/rcmd';
 
   static const String matchInfo = '/x/esports/match/info';
@@ -1036,13 +1021,4 @@ abstract final class Api {
 
   static const String liveMasterInfo =
       '${HttpString.liveBaseUrl}/live_user/v1/Master/info';
-
-  static const String liveFansMedalPanel =
-      '${HttpString.liveBaseUrl}/xlive/app-ucenter/v1/fansMedal/panel';
-
-  static const String liveFansMedalWear =
-      '${HttpString.liveBaseUrl}/xlive/app-ucenter/v1/fansMedal/wear';
-
-  static const String liveFansMedalTakeOff =
-      '${HttpString.liveBaseUrl}/xlive/app-ucenter/v1/fansMedal/take_off';
 }

@@ -24,7 +24,6 @@ import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/pages/dynamics/widgets/vote.dart';
 import 'package:PiliPlus/pages/member/widget/medal_widget.dart';
 import 'package:PiliPlus/pages/save_panel/view.dart';
-import 'package:PiliPlus/pages/audio/controller.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/reply/widgets/zan_grpc.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -180,7 +179,7 @@ class ReplyItemGrpc extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        remarkedName(member.mid.toInt(), member.name),
+                        member.name,
                         maxLines: 1,
                         overflow: .ellipsis,
                         style: TextStyle(
@@ -218,30 +217,25 @@ class ReplyItemGrpc extends StatelessWidget {
                       ),
                   ],
                 ),
-                Row(
-                  mainAxisSize: .min,
-                  children: [
-                    Text(
-                      replyLevel == 0
-                          ? DateFormatUtils.format(
-                              replyItem.ctime.toInt(),
-                              format: DateFormatUtils.longFormatDs,
-                            )
-                          : DateFormatUtils.dateFormat(replyItem.ctime.toInt()),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.outline,
-                      ),
-                    ),
-                    if (replyItem.replyControl.hasLocation())
-                      Text(
-                        ' • ${replyItem.replyControl.location}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.outline,
-                        ),
-                      ),
-                  ],
+                Text.rich(
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: TextStyle(fontSize: 11, color: colorScheme.outline),
+                  TextSpan(
+                    text: replyLevel == 0
+                        ? DateFormatUtils.format(
+                            replyItem.ctime.toInt(),
+                            format: DateFormatUtils.longFormatDs,
+                          )
+                        : DateFormatUtils.dateFormat(replyItem.ctime.toInt()),
+                    children: replyItem.replyControl.hasLocation()
+                        ? [
+                            TextSpan(
+                              text: ' • ${replyItem.replyControl.location}',
+                            ),
+                          ]
+                        : null,
+                  ),
                 ),
               ],
             ),
@@ -631,10 +625,7 @@ class ReplyItemGrpc extends StatelessWidget {
                       TextSpan(
                         children: [
                           TextSpan(
-                            text: remarkedName(
-                              childReply.member.mid.toInt(),
-                              childReply.member.name,
-                            ),
+                            text: childReply.member.name,
                             style: TextStyle(color: colorScheme.primary),
                             recognizer: NoDeadlineTapGestureRecognizer()
                               ..onTap = () {
@@ -875,26 +866,15 @@ class ReplyItemGrpc extends StatelessWidget {
         } else if (_timeRegExp.hasMatch(matchStr)) {
           matchStr = matchStr.replaceAll('：', ':');
           bool isValid = false;
-          final heroTag = getTag?.call() ?? Get.arguments?['heroTag'];
-          if (kDebugMode) {
-            debugPrint('Validating timestamp: $matchStr with tag: $heroTag');
-          }
           try {
-            final ctr = Get.find<AudioController>(tag: heroTag);
+            final ctr = Get.find<VideoDetailController>(
+              tag: getTag?.call() ?? Get.arguments['heroTag'],
+            );
             isValid =
                 DurationUtils.parseDuration(matchStr) * 1000 <=
-                ctr.duration.value * 1000;
-            if (kDebugMode) debugPrint('Found AudioController, isValid: $isValid');
-          } catch (_) {
-            try {
-              final ctr = Get.find<VideoDetailController>(tag: heroTag);
-              isValid =
-                  DurationUtils.parseDuration(matchStr) * 1000 <=
-                  ctr.data.timeLength!;
-              if (kDebugMode) debugPrint('Found VideoDetailController, isValid: $isValid');
-            } catch (e) {
-              if (kDebugMode) debugPrint('No controller found for tag: $heroTag, error: $e');
-            }
+                ctr.data.timeLength!;
+          } catch (e) {
+            if (kDebugMode) debugPrint('failed to validate: $e');
           }
           spanChildren.add(
             TextSpan(
@@ -905,33 +885,17 @@ class ReplyItemGrpc extends StatelessWidget {
                       ..onTap = () {
                         // 跳转到指定位置
                         try {
-                          final heroTag =
-                              getTag?.call() ?? Get.arguments?['heroTag'];
-                          final duration = Duration(
-                            seconds: DurationUtils.parseDuration(matchStr),
-                          );
                           SmartDialog.showToast('跳转至：$matchStr');
-                          if (kDebugMode) {
-                            debugPrint('Seeking to $duration with tag: $heroTag');
-                          }
-                          try {
-                            final ctr = Get.find<AudioController>(tag: heroTag);
-                            if (kDebugMode) debugPrint('Seeking AudioController');
-                            ctr.seekTo(
-                              duration,
-                              isSeek: false,
-                            );
-                          } catch (_) {
-                            final ctr = Get.find<VideoDetailController>(tag: heroTag);
-                            if (kDebugMode) debugPrint('Seeking VideoDetailController');
-                            ctr.plPlayerController.seekTo(
-                              duration,
-                              isSeek: false,
-                            );
-                          }
+                          Get.find<VideoDetailController>(
+                            tag: Get.arguments['heroTag'],
+                          ).plPlayerController.seekTo(
+                            Duration(
+                              seconds: DurationUtils.parseDuration(matchStr),
+                            ),
+                            isSeek: false,
+                          );
                         } catch (e) {
                           SmartDialog.showToast('跳转失败: $e');
-                          if (kDebugMode) debugPrint('Seek error: $e');
                         }
                       })
                   : null,
@@ -1225,23 +1189,6 @@ class ReplyItemGrpc extends StatelessWidget {
               minLeadingWidth: 0,
               leading: Icon(Icons.error_outline, color: errorColor, size: 19),
               title: Text('举报', style: style.copyWith(color: errorColor)),
-            ),
-          if (item.member.mid != Int64.ZERO)
-            ListTile(
-              onTap: () {
-                final mid = item.member.mid.toInt();
-                final rawName = item.member.name.trim();
-                final name = rawName.isEmpty ? 'UID:$mid' : rawName;
-                final mids = Map<int, String>.from(Pref.replyBlockedMids);
-                mids[mid] = name;
-                Pref.replyBlockedMids = mids;
-                ReplyGrpc.replyBlockedMids = mids;
-                Get.back();
-                SmartDialog.showToast('已屏蔽 $name');
-              },
-              minLeadingWidth: 0,
-              leading: const Icon(Icons.person_off_outlined, size: 19),
-              title: Text('屏蔽用户', style: style),
             ),
           if (replyLevel == 1 && !isSubReply && ownerMid == upMid)
             ListTile(

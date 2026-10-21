@@ -290,7 +290,6 @@ mixin CommonDynPageMixin<T extends StatefulWidget>
           isVideoDetail: !showBackBtn,
           replyType: controller.replyType,
           firstFloor: replyItem,
-          heroTag: arguments?['heroTag'],
           upMid: controller.upMid,
         ),
       );

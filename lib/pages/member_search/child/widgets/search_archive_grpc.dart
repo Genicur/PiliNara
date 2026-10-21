@@ -1,7 +1,6 @@
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/stat/stat.dart';
@@ -11,7 +10,6 @@ import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/stat_type.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
-import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/em.dart';
 import 'package:PiliPlus/utils/extension/dimension_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -119,13 +117,14 @@ class SearchArchiveGrpc extends StatelessWidget {
             right: 12,
             width: 29,
             height: 29,
-            child: StaticPopupMenuButton(
+            child: PopupMenuButton(
               padding: EdgeInsets.zero,
               icon: Icon(
                 Icons.more_vert_outlined,
                 color: Theme.of(context).colorScheme.outline,
                 size: 17,
               ),
+              position: PopupMenuPosition.under,
               itemBuilder: (context) => [
                 PopupMenuItem(
                   height: 45,
@@ -193,10 +192,7 @@ class SearchArchiveGrpc extends StatelessWidget {
             ),
           ),
           Text(
-            "$pubdate${remarkedName(
-              arc.author.mid.toInt(),
-              arc.author.name,
-            )}",
+            "$pubdate${arc.author.name}",
             maxLines: 1,
             style: TextStyle(
               fontSize: 12,

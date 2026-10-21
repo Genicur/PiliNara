@@ -37,7 +37,7 @@ void exportToLocalFile({
   final res = utf8.encode(onExport());
   StorageUtils.saveBytes2File(
     name:
-        'pilinara_${localFileName()}_'
+        'piliplus_${localFileName()}_'
         '${DateFormatUtils.only0_9.format(DateTime.now())}.json',
     bytes: res,
     allowedExtensions: const ['json'],
@@ -212,7 +212,7 @@ void importFromInput<T>(
 
 Future<void> _exportAllDataToArchive() async {
   final name =
-      'pilinara_data_'
+      'piliplus_data_'
       '${DateFormatUtils.only0_9.format(DateTime.now())}.zip';
   if (PlatformUtils.isDesktop) {
     final path = await FilePicker.saveFile(

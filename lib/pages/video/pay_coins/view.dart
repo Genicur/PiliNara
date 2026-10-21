@@ -5,8 +5,6 @@ import 'dart:math' show max;
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
-import 'package:PiliPlus/http/loading_state.dart';
-import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/pages/common/publish/publish_route.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
@@ -26,13 +24,11 @@ class PayCoinsPage extends StatefulWidget {
     required this.onPayCoin,
     required this.hasCoin,
     required this.hasCopyright,
-    this.showCoinWithLike = true,
   });
 
   final OnPayCoin onPayCoin;
   final bool hasCoin;
   final bool hasCopyright;
-  final bool showCoinWithLike;
 
   @override
   State<PayCoinsPage> createState() => _PayCoinsPageState();
@@ -41,7 +37,6 @@ class PayCoinsPage extends StatefulWidget {
     required OnPayCoin onPayCoin,
     required bool hasCoin,
     required bool hasCopyright,
-    bool showCoinWithLike = true,
   }) {
     Get.key.currentState!.push(
       PublishRoute(
@@ -50,7 +45,6 @@ class PayCoinsPage extends StatefulWidget {
             onPayCoin: onPayCoin,
             hasCoin: hasCoin,
             hasCopyright: hasCopyright,
-            showCoinWithLike: showCoinWithLike,
           );
         },
         transitionDuration: const Duration(milliseconds: 225),
@@ -71,8 +65,7 @@ class _PayCoinsPageState extends State<PayCoinsPage>
   late final _hasCopyright = widget.hasCopyright;
   late bool _isPaying = false;
   PageController? _controller;
-  late final RxBool _coinWithLike =
-      (widget.showCoinWithLike && Pref.coinWithLike).obs;
+  late final RxBool _coinWithLike = Pref.coinWithLike.obs;
   late final RxInt _pageIndex = 0.obs;
 
   late final AnimationController _slide22Controller;
@@ -97,7 +90,6 @@ class _PayCoinsPageState extends State<PayCoinsPage>
   }
 
   final num? _coins = GlobalData().coins;
-  final RxnInt _todayExp = RxnInt();
 
   bool _canPay(int index) {
     if (index == 1 && widget.hasCoin) {
@@ -170,14 +162,6 @@ class _PayCoinsPageState extends State<PayCoinsPage>
     );
 
     WidgetsBinding.instance.addPostFrameCallback(_scale);
-    _fetchTodayExp();
-  }
-
-  Future<void> _fetchTodayExp() async {
-    final res = await UserHttp.coinTodayExp();
-    if (res is Success<int> && mounted) {
-      _todayExp.value = res.data;
-    }
   }
 
   @override
@@ -208,16 +192,13 @@ class _PayCoinsPageState extends State<PayCoinsPage>
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final isPortrait = size.isPortrait;
-    return DefaultTextStyle(
-      style: TextTheme.of(context).bodyMedium!,
-      child: isPortrait
-          ? _buildBody(isPortrait)
-          : _buildBody(isPortrait).constraintWidth(
-              constraints: BoxConstraints(
-                maxWidth: math.min(525, size.width * 0.6),
-              ),
+    return isPortrait
+        ? _buildBody(isPortrait)
+        : _buildBody(isPortrait).constraintWidth(
+            constraints: BoxConstraints(
+              maxWidth: math.min(525, size.width * 0.6),
             ),
-    );
+          );
   }
 
   Widget _buildCoinWidget(int index, double factor) {
@@ -437,59 +418,38 @@ class _PayCoinsPageState extends State<PayCoinsPage>
                   ),
                 ),
               ],
-              Obx(() {
-                final todayExp = _todayExp.value;
-                if (todayExp == null) return const SizedBox.shrink();
-                final gainExp = (_pageIndex.value + 1) * 10;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Center(
-                    child: Text(
-                      '经验值+$gainExp（今日$todayExp/50）',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.75),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                );
-              }),
               const SizedBox(height: 10),
               Stack(
                 clipBehavior: Clip.none,
                 alignment: Alignment.centerLeft,
                 children: [
-                  if (widget.showCoinWithLike)
-                    GestureDetector(
-                      onTap: () {
-                        final newVal = !_coinWithLike.value;
-                        _coinWithLike.value = newVal;
-                        GStorage.setting.put(
-                          SettingBoxKey.coinWithLike,
-                          newVal,
-                        );
-                      },
-                      behavior: HitTestBehavior.opaque,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(width: 12),
-                          Obx(
-                            () => Icon(
-                              _coinWithLike.value
-                                  ? Icons.check_box_outlined
-                                  : Icons.check_box_outline_blank,
-                              size: 20,
-                              color: Colors.white,
-                            ),
+                  GestureDetector(
+                    onTap: () {
+                      final newVal = !_coinWithLike.value;
+                      _coinWithLike.value = newVal;
+                      GStorage.setting.put(SettingBoxKey.coinWithLike, newVal);
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 12),
+                        Obx(
+                          () => Icon(
+                            _coinWithLike.value
+                                ? Icons.check_box_outlined
+                                : Icons.check_box_outline_blank,
+                            size: 20,
+                            color: Colors.white,
                           ),
-                          const Text(
-                            ' 同时点赞',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
+                        ),
+                        const Text(
+                          ' 同时点赞',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
                     ),
+                  ),
                   Center(
                     child: GestureDetector(
                       onTap: Get.back,

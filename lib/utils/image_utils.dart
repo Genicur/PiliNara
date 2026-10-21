@@ -16,7 +16,6 @@ import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
-import 'package:clipboard/clipboard.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:live_photo_maker/live_photo_maker.dart';
@@ -47,36 +46,6 @@ abstract final class ImageUtils {
       );
     } catch (e) {
       SmartDialog.showToast(e.toString());
-    }
-  }
-
-  // 复制图片到剪贴板
-  static Future<void> copyImg(String url) async {
-    try {
-      SmartDialog.showLoading(msg: '正在复制');
-      final file = (await CacheManager.manager.getFileFromCache(
-        url.http2https,
-      ))?.file;
-      File? tempFile;
-      final filePath = file?.path ??
-          () {
-            final name = Utils.getFileName(url);
-            final path = '$tmpDirPath/$name';
-            tempFile = File(path);
-            return path;
-          }();
-      if (file == null) {
-        final res = await Request().downloadFile(url.http2https, filePath);
-        if (res.statusCode != 200) throw '${res.statusCode}';
-      }
-      final bytes = await (file ?? tempFile!).readAsBytes();
-      await FlutterClipboard.copyImage(bytes);
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('已复制');
-      tempFile?.tryDel();
-    } catch (e) {
-      SmartDialog.dismiss(status: SmartStatus.loading);
-      SmartDialog.showToast('复制失败: $e');
     }
   }
 

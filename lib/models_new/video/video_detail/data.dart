@@ -8,7 +8,6 @@ import 'package:PiliPlus/models_new/video/video_detail/rights.dart';
 import 'package:PiliPlus/models_new/video/video_detail/staff.dart';
 import 'package:PiliPlus/models_new/video/video_detail/stat.dart';
 import 'package:PiliPlus/models_new/video/video_detail/ugc_season.dart';
-import 'package:PiliPlus/models/common/list_order.dart';
 import 'package:PiliPlus/utils/parse_string.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
@@ -36,8 +35,7 @@ class VideoDetailData {
   UgcSeason? ugcSeason;
   List<Staff>? staff;
   String? redirectUrl;
-  ListOrder listOrder = ListOrder.asc;
-  List<Part>? originalPages;
+  bool isPageReversed = false;
 
   bool get hasSeason => ugcSeason != null;
 

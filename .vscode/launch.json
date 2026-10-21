@@ -5,18 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "PiliNara",
+            "name": "PiliPlus",
             "request": "launch",
             "type": "dart"
         },
         {
-            "name": "PiliNara (profile mode)",
+            "name": "PiliPlus (profile mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "profile"
         },
         {
-            "name": "PiliNara (release mode)",
+            "name": "PiliPlus (release mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"

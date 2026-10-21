@@ -1,42 +1,33 @@
-import 'dart:io' show Platform;
+import 'dart:async';
 
 import 'package:PiliPlus/common/widgets/appbar/appbar.dart';
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
-import 'package:PiliPlus/models_new/download/download_folder.dart';
-import 'package:PiliPlus/models_new/download/download_playback.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart'
     show BaseMultiSelectMixin;
 import 'package:PiliPlus/pages/download/detail/widgets/item.dart';
+import 'package:PiliPlus/pages/download/download/controller.dart';
 import 'package:PiliPlus/pages/download/download_action_mixin.dart';
-import 'package:PiliPlus/pages/download/utils/cache_delete_confirm.dart';
-import 'package:PiliPlus/pages/download/utils/cache_export.dart';
-import 'package:PiliPlus/pages/download/utils/card_menu.dart';
-import 'package:PiliPlus/pages/download/widgets/folder_dialog.dart';
-import 'package:PiliPlus/services/download/download_folder_service.dart';
-import 'package:PiliPlus/services/download/download_library_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/grid.dart';
-import 'package:collection/collection.dart';
+import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart'
     hide SliverGridDelegateWithMaxCrossAxisExtent;
 
-/// 视频页内的条目列表：视频/分P 页 → 条目（分P 或番剧分集）。
 class DownloadDetailPage extends StatefulWidget {
   const DownloadDetailPage({
     super.key,
-    required this.seasonKey,
     required this.pageId,
     required this.title,
     required this.progress,
   });
 
-  final String seasonKey;
   final String pageId;
   final String title;
   final ChangeNotifier progress;
@@ -51,8 +42,9 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
         GridMixin,
         BaseDownloadActionMixin<DownloadDetailPage, BiliDownloadEntryInfo>,
         CommonDownloadActionMixin<DownloadDetailPage> {
+  StreamSubscription? _sub;
   final _downloadItems = RxList<BiliDownloadEntryInfo>();
-  final _libraryService = Get.find<DownloadLibraryService>();
+  final _controller = Get.find<DownloadController>();
 
   @override
   RxList<BiliDownloadEntryInfo> get list => _downloadItems;
@@ -69,73 +61,38 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
   void initState() {
     super.initState();
     _loadList();
-    _libraryService.flagNotifier.add(_loadList);
+    _sub = _controller.flag.listen((_) {
+      _loadList();
+    });
+  }
+
+  Future<void> _closeSub() async {
+    if (_sub != null) {
+      await _sub?.cancel();
+      _sub = null;
+    }
   }
 
   @override
   void dispose() {
-    _libraryService.flagNotifier.remove(_loadList);
+    _closeSub();
     super.dispose();
   }
 
-  Future<void> _loadList() async {
-    await _libraryService.waitForInitialization;
-    if (!mounted) {
-      return;
+  void _loadList() {
+    List<BiliDownloadEntryInfo>? list;
+    for (final season in _controller.seasons) {
+      for (final page in season.pages) {
+        if (page.pageId == widget.pageId) {
+          list = page.entries..sort(downloadEntrySort);
+        }
+      }
     }
-    final hadItems = _downloadItems.isNotEmpty;
-    final page = _libraryService
-        .seasonByKey(widget.seasonKey)
-        ?.pages
-        .firstWhereOrNull((e) => e.pageId == widget.pageId);
-    final entries = page?.entries;
-    if (entries == null || entries.isEmpty) {
+    if (list != null) {
+      _downloadItems.value = list;
+    } else {
       _downloadItems.clear();
-      // 这一页的缓存被删光时退出，避免停在空列表上。
-      if (hadItems && mounted) {
-        Get.back();
-      }
-      return;
     }
-    _downloadItems.value = entries.toList()..sort(downloadEntrySort);
-  }
-
-  Future<void> _exportSelected() async {
-    final entries = allChecked.toList();
-    handleSelect();
-    await exportDownloadEntries(entries);
-  }
-
-  /// 在视频页内部勾选得到的是独立条目，哪怕整页都选上了。
-  Future<void> _addSelectedToFolder() async {
-    final items = DownloadFolderItem.ofEntries(allChecked);
-    if (items.isEmpty) {
-      return;
-    }
-    final folderIds = await showDownloadFolderPickerDialog(context: context);
-    if (folderIds == null || folderIds.isEmpty) {
-      return;
-    }
-    final added = await Get.find<DownloadFolderService>().addItemsToFolders(
-      items,
-      folderIds,
-    );
-    handleSelect();
-    SmartDialog.showToast(added == 0 ? '已经在文件夹里了' : '已添加到文件夹');
-  }
-
-  @override
-  void onRemove() {
-    confirmDeleteEntries(
-      context: Get.context!,
-      downloadService: downloadService,
-      entries: allChecked,
-    ).then((deleted) {
-      if (deleted) {
-        rxCount.value = 0;
-        enableMultiSelect.value = false;
-      }
-    });
   }
 
   @override
@@ -152,25 +109,7 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
         child: SimpleScaffold(
           appBar: MultiSelectAppBarWidget(
             ctr: this,
-            visible: enableMultiSelect,
-            actions: [
-              updateBtn(),
-              TextButton(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: checkedCount == 0 ? null : _addSelectedToFolder,
-                child: const Text('添加到'),
-              ),
-              if (Platform.isAndroid)
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: checkedCount == 0 ? null : _exportSelected,
-                  child: const Text('导出'),
-                ),
-            ],
+            actions: [updateBtn()],
             child: AppBar(
               title: Text(widget.title),
               actions: [
@@ -203,19 +142,24 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
                           progress: widget.progress,
                           downloadService: downloadService,
                           showTitle: false,
+                          onDelete: () async {
+                            if (_downloadItems.length == 1) {
+                              await _closeSub();
+                              await downloadService.deletePage(
+                                pageDirPath: entry.pageDirPath,
+                              );
+                              if (mounted) {
+                                Get.back();
+                              }
+                            } else {
+                              downloadService.deleteDownload(
+                                entry: entry,
+                                removeList: true,
+                              );
+                            }
+                            GStorage.watchProgress.delete(entry.cid.toString());
+                          },
                           controller: this,
-                          playContext: DownloadVideoPlayContext.season(
-                            widget.seasonKey,
-                          ),
-                          onDelete: () => deleteLocalEntries(
-                            downloadService: downloadService,
-                            entries: [entry],
-                          ),
-                          extraMoreItemsBuilder: (menuContext) =>
-                              buildAddEntriesToFolderMenuItems(
-                                context: menuContext,
-                                entries: [entry],
-                              ),
                         );
                       },
                       itemCount: _downloadItems.length,
@@ -229,5 +173,43 @@ class _DownloadDetailPageState extends State<DownloadDetailPage>
         ),
       );
     });
+  }
+
+  @override
+  void onRemove() {
+    showConfirmDialog(
+      context: context,
+      title: const Text('确定删除选中视频？'),
+      onConfirm: () async {
+        SmartDialog.showLoading();
+        final allChecked = this.allChecked.toList();
+        final isDeleteAll = allChecked.length == _downloadItems.length;
+        await Future.wait([
+          if (isDeleteAll) _closeSub(),
+          GStorage.watchProgress.deleteAll(
+            allChecked.map((e) => e.cid.toString()),
+          ),
+          for (final entry in allChecked)
+            downloadService.deleteDownload(
+              entry: entry,
+              removeList: true,
+              refresh: false,
+            ),
+        ]);
+        downloadService.flagNotifier.refresh();
+        if (isDeleteAll) {
+          SmartDialog.dismiss();
+          if (mounted) {
+            Get.back();
+          }
+        } else {
+          if (enableMultiSelect.value) {
+            rxCount.value = 0;
+            enableMultiSelect.value = false;
+          }
+          SmartDialog.dismiss();
+        }
+      },
+    );
   }
 }

@@ -33,7 +33,7 @@ List<SettingsModel> get dynSettings => [
     defaultVal: false,
     onChanged: (val) => ItemModulesModel.showDynDispute = val,
   ),
-  getListBanWordModel(
+  getBanWordModel(
     title: '动态关键词过滤',
     key: SettingBoxKey.banWordForDyn,
     onChanged: (value) {

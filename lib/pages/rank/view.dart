@@ -2,7 +2,6 @@ import 'package:PiliPlus/common/widgets/flutter/vertical_tabs.dart';
 import 'package:PiliPlus/models/common/rank_type.dart';
 import 'package:PiliPlus/pages/rank/controller.dart';
 import 'package:PiliPlus/pages/rank/zone/view.dart';
-import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -56,11 +55,7 @@ class _RankPageState extends State<RankPage>
       tabs: RankType.values.map((e) => VerticalTab(text: e.label)).toList(),
       onTap: (index) {
         if (!_rankController.tabController.indexIsChanging) {
-          if (Pref.enableCurrentPageRefresh) {
-            _rankController.toTopAndRefresh();
-          } else {
-            _rankController.animateToTop();
-          }
+          _rankController.animateToTop();
         } else {
           _rankController
             ..tabIndex.value = index

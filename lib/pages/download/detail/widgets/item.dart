@@ -3,20 +3,17 @@ import 'dart:io';
 
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/video_progress_indicator.dart';
 import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
-import 'package:PiliPlus/models/common/video/video_type.dart';
+import 'package:PiliPlus/models/common/video/source_type.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
-import 'package:PiliPlus/models_new/download/download_playback.dart';
 import 'package:PiliPlus/pages/common/multi_select/base.dart';
 import 'package:PiliPlus/pages/download/downloading/view.dart';
-import 'package:PiliPlus/pages/download/utils/cache_delete_confirm.dart';
-import 'package:PiliPlus/pages/download/utils/cache_export.dart';
-import 'package:PiliPlus/pages/download/utils/open_download_entry.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
@@ -38,12 +35,6 @@ class DetailItem extends StatelessWidget {
     this.onDelete,
     required this.showTitle,
     this.isCurr = false,
-    this.playContext,
-    this.onPlayReturned,
-    this.customOnLongPress,
-    this.extraMoreItemsBuilder,
-    this.enableTap = true,
-    this.showMoreButton = true,
     //
     required this.controller,
     this.checked,
@@ -56,13 +47,6 @@ class DetailItem extends StatelessWidget {
   final VoidCallback? onDelete;
   final bool showTitle;
   final bool isCurr;
-  final DownloadVideoPlayContext? playContext;
-  final Future<void> Function()? onPlayReturned;
-  final VoidCallback? customOnLongPress;
-  final List<PopupMenuEntry<void>> Function(BuildContext context)?
-  extraMoreItemsBuilder;
-  final bool enableTap;
-  final bool showMoreButton;
   //
   final MultiSelectBase controller;
   final bool? checked;
@@ -94,64 +78,116 @@ class DetailItem extends StatelessWidget {
     final theme = Theme.of(context);
     final outline = theme.colorScheme.outline;
     final cid = entry.source?.cid ?? entry.pageData?.cid;
-    final canDel = entry.isCompleted;
+    final canDel = onDelete != null;
     final enableMultiSelect = controller.enableMultiSelect.value;
-    void onLongPress() {
-      if (enableMultiSelect) {
-        return;
-      }
-      customOnLongPress?.call();
-    }
+    void onLongPress() => canDel && !enableMultiSelect
+        ? showDialog(
+            context: context,
+            builder: (context) => SimpleDialog(
+              clipBehavior: Clip.hardEdge,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              children: [
+                DialogOption(
+                  onPressed: () {
+                    Get.back();
+                    showConfirmDialog(
+                      context: context,
+                      title: const Text('确定删除该视频？'),
+                      onConfirm: onDelete,
+                    );
+                  },
+                  child: const Text('删除', style: TextStyle(fontSize: 14)),
+                ),
+                DialogOption(
+                  onPressed: () async {
+                    Get.back();
+                    final res = await downloadService.downloadDanmaku(
+                      entry: entry,
+                      isUpdate: true,
+                    );
+                    if (res) {
+                      SmartDialog.showToast('更新成功');
+                    } else {
+                      SmartDialog.showToast('更新失败');
+                    }
+                  },
+                  child: const Text('更新弹幕', style: TextStyle(fontSize: 14)),
+                ),
+                if (entry.segments != null)
+                  DialogOption(
+                    onPressed: () {
+                      Get.back();
+                      showSegmentsDetail(context);
+                    },
+                    child: const Text('空降片段'),
+                  ),
+                if (entry.isCompleted)
+                  DialogOption(
+                    onPressed: () async {
+                      Get.back();
+                      final res = await downloadService.updateSegments(entry);
+                      if (res) {
+                        SmartDialog.showToast('更新成功');
+                      } else {
+                        SmartDialog.showToast('更新失败');
+                      }
+                    },
+                    child: const Text('更新空降片段'),
+                  ),
+              ],
+            ),
+          )
+        : null;
 
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
-        onTap: enableTap
-            ? () async {
-                if (!canDel) {
-                  Get.to(const DownloadingPage());
-                  return;
+        onTap: () async {
+          if (!canDel) {
+            Get.to(const DownloadingPage());
+            return;
+          }
+          if (enableMultiSelect) {
+            (onSelect ?? controller.onSelect).call(entry);
+            return;
+          }
+          if (entry.isCompleted) {
+            await PageUtils.toVideoPage(
+              aid: entry.avid,
+              cid: cid!,
+              cover: entry.cover,
+              title: entry.showTitle,
+              isVertical: entry.pageData?.isVertical ?? false,
+              extraArguments: {
+                'sourceType': SourceType.file,
+                'entry': entry,
+                'dirPath': entry.entryDirPath,
+              },
+            );
+            if (context.mounted) {
+              Timer(const Duration(milliseconds: 400), () {
+                if (context.mounted) {
+                  // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+                  progress?.notifyListeners();
                 }
-                if (enableMultiSelect) {
-                  (onSelect ?? controller.onSelect).call(entry);
-                  return;
-                }
-                if (entry.isCompleted) {
-                  await openDownloadEntry(
-                    entry: entry,
-                    playContext: playContext,
-                  );
-                  if (context.mounted) {
-                    Timer(const Duration(milliseconds: 400), () {
-                      if (context.mounted) {
-                        // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-                        progress?.notifyListeners();
-                        onPlayReturned?.call();
-                      }
-                    });
-                  }
-                } else {
-                  final curDownload = downloadService.curDownload.value;
-                  if (curDownload != null &&
-                      curDownload.cid == cid &&
-                      curDownload.status.isDownloading) {
-                    downloadService.cancelDownload(
-                      isDelete: false,
-                      downloadNext: false,
-                    );
-                  } else {
-                    downloadService.startDownload(entry);
-                  }
-                }
-              }
-            : null,
-        onLongPress: enableTap && customOnLongPress != null
-            ? onLongPress
-            : null,
-        onSecondaryTap:
-            !enableTap || PlatformUtils.isMobile || customOnLongPress == null
-            ? null
-            : onLongPress,
+              });
+            }
+          } else {
+            final curDownload = downloadService.curDownload.value;
+            if (curDownload != null &&
+                curDownload.cid == cid &&
+                curDownload.status.isDownloading) {
+              downloadService.cancelDownload(
+                isDelete: false,
+                downloadNext: false,
+              );
+            } else {
+              downloadService.startDownload(entry);
+            }
+          }
+        },
+        onLongPress: onLongPress,
+        onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Style.safeSpace,
@@ -334,12 +370,11 @@ class DetailItem extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (showMoreButton)
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: _buildMoreBtn(context, theme),
-                        ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: entry.moreBtn(theme.colorScheme),
+                      ),
                     ] else
                       Positioned(
                         left: 0,
@@ -445,153 +480,6 @@ class DetailItem extends StatelessWidget {
           value: progress,
         ),
       ],
-    );
-  }
-
-  Widget _buildMoreBtn(BuildContext context, ThemeData theme) {
-    final canDel = entry.isCompleted;
-    return SizedBox(
-      width: 29,
-      height: 29,
-      child: Builder(
-        builder: (menuContext) => IconButton(
-          constraints: const BoxConstraints.tightFor(width: 29, height: 29),
-          padding: EdgeInsets.zero,
-          icon: Icon(
-            Icons.more_vert_outlined,
-            color: theme.colorScheme.outline,
-            size: 18,
-          ),
-          onPressed: () {
-            showStaticPositionMenu<void>(
-              context: menuContext,
-              items: [
-                CustomPopupMenuItem<void>(
-                  height: 38,
-                  child: const Text('查看详情页', style: TextStyle(fontSize: 13)),
-                  onTap: () {
-                    if (entry.ep case final ep?) {
-                      if (ep.from == VideoType.pugv.name) {
-                        PageUtils.viewPugv(
-                          seasonId: entry.seasonId,
-                          epId: ep.episodeId,
-                        );
-                      } else {
-                        PageUtils.viewPgc(
-                          seasonId: entry.seasonId,
-                          epId: ep.episodeId,
-                        );
-                      }
-                      return;
-                    }
-                    PageUtils.toVideoPage(
-                      aid: entry.avid,
-                      bvid: entry.bvid,
-                      cid: entry.cid,
-                      epId: entry.ep?.episodeId,
-                      title: entry.title,
-                      cover: entry.cover,
-                    );
-                  },
-                ),
-                if (PlatformUtils.isDesktop)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text(
-                      '打开本地文件夹',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    onTap: () async {
-                      try {
-                        final String executable;
-                        if (Platform.isWindows) {
-                          executable = 'explorer';
-                        } else if (Platform.isMacOS) {
-                          executable = 'open';
-                        } else if (Platform.isLinux) {
-                          executable = 'xdg-open';
-                        } else {
-                          throw UnimplementedError();
-                        }
-                        await Process.run(executable, [entry.entryDirPath]);
-                      } catch (e) {
-                        SmartDialog.showToast(e.toString());
-                      }
-                    },
-                  ),
-                if (entry.ownerId case final mid?)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: Text(
-                      '访问${entry.ownerName != null ? '：${entry.ownerName}' : '用户主页'}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    onTap: () => Get.toNamed('/member?mid=$mid'),
-                  ),
-                if (canDel && Platform.isAndroid)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text('导出', style: TextStyle(fontSize: 13)),
-                    onTap: () => exportDownloadEntry(entry),
-                  ),
-                ...?extraMoreItemsBuilder?.call(menuContext),
-                if (canDel) const PopupMenuDivider(height: 8),
-                if (canDel)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text('删除', style: TextStyle(fontSize: 13)),
-                    onTap: () async {
-                      if (!await showDeleteConfirm(
-                        context: menuContext,
-                        entries: [entry],
-                      )) {
-                        return;
-                      }
-                      if (onDelete case final onDelete?) {
-                        onDelete();
-                      } else {
-                        await deleteLocalEntries(
-                          downloadService: downloadService,
-                          entries: [entry],
-                        );
-                      }
-                    },
-                  ),
-                if (canDel)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text('更新弹幕', style: TextStyle(fontSize: 13)),
-                    onTap: () async {
-                      final res = await downloadService.downloadDanmaku(
-                        entry: entry,
-                        isUpdate: true,
-                      );
-                      SmartDialog.showToast(res ? '更新成功' : '更新失败');
-                    },
-                  ),
-                if (canDel && entry.segments != null)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text('空降片段', style: TextStyle(fontSize: 13)),
-                    onTap: () => showSegmentsDetail(menuContext),
-                  ),
-                if (canDel)
-                  CustomPopupMenuItem<void>(
-                    height: 38,
-                    child: const Text(
-                      '更新空降片段',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    onTap: () async {
-                      final res = await downloadService.updateSegments(entry);
-                      SmartDialog.showToast(res ? '更新成功' : '更新失败');
-                    },
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
     );
   }
 }

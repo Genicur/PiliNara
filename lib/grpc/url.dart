@@ -60,10 +60,6 @@ abstract final class GrpcUrl {
   static const audioTripleLike = '$audio/TripleLike';
   static const audioCoinAdd = '$audio/CoinAdd';
 
-  // playurl (APP 端视频取流，可拿到 4K)
-  static const playUrl = '/bilibili.app.playurl.v1.PlayURL';
-  static const playView = '$playUrl/PlayView';
-
   // space
   static const space = '/bilibili.app.interface.v1.Space';
   static const searchArchive = '$space/SearchArchive';

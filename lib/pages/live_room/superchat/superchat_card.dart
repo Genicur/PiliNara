@@ -1,13 +1,12 @@
 import 'dart:async' show Timer;
 
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/selection_text.dart';
-import 'package:PiliPlus/models/common/super_chat_time_type.dart';
 import 'package:PiliPlus/models_new/live/live_superchat/item.dart';
 import 'package:PiliPlus/pages/member/widget/medal_widget.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/color_utils.dart';
+import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/extension/selectable_region_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
@@ -28,14 +27,12 @@ class SuperChatCard extends StatefulWidget {
     required this.item,
     this.onRemove,
     this.persistentSC = false,
-    this.superChatTimeType = SuperChatTimeType.disable,
     this.onReport,
   });
 
   final SuperChatItem item;
   final VoidCallback? onRemove;
   final bool persistentSC;
-  final SuperChatTimeType superChatTimeType;
   final VoidCallback? onReport;
 
   @override
@@ -110,9 +107,8 @@ class _SuperChatCardState extends State<SuperChatCard> {
     showMenu(
       context: context,
       position: PageUtils.menuPosition(offset),
-      clipBehavior: Clip.antiAlias,
       items: [
-        CustomPopupMenuItem<void>(
+        PopupMenuItem(
           height: 38,
           onTap: () => Get.toNamed('/member?mid=${item.uid}'),
           child: Text(
@@ -120,7 +116,7 @@ class _SuperChatCardState extends State<SuperChatCard> {
             style: const TextStyle(fontSize: 13),
           ),
         ),
-        CustomPopupMenuItem<void>(
+        PopupMenuItem(
           height: 38,
           onTap: () => Utils.copyText(Utils.jsonEncoder.convert(item.toJson())),
           child: const Text(
@@ -128,18 +124,18 @@ class _SuperChatCardState extends State<SuperChatCard> {
             style: TextStyle(fontSize: 13),
           ),
         ),
-        CustomPopupMenuItem<void>(
+        PopupMenuItem(
           height: 38,
           onTap: () {
             if (!mounted) return;
-            _screenShot(context, item, showTime: _showTime);
+            _screenShot(context, item);
           },
           child: const Text(
             '保存为图片',
             style: TextStyle(fontSize: 13),
           ),
         ),
-        CustomPopupMenuItem<void>(
+        PopupMenuItem(
           height: 38,
           onTap: widget.onReport,
           child: const Text(
@@ -155,40 +151,19 @@ class _SuperChatCardState extends State<SuperChatCard> {
     });
   }
 
-  bool get _showTime => switch (widget.superChatTimeType) {
-    SuperChatTimeType.disable => false,
-    SuperChatTimeType.whenPersist => widget.persistentSC,
-    SuperChatTimeType.always => true,
-  };
-
   @override
   Widget build(BuildContext context) {
-    return _build(
-      item: widget.item,
-      remains: _remains,
-      showMenu: _showMenu,
-      showTime: _showTime,
-    );
+    return _build(item: widget.item, remains: _remains, showMenu: _showMenu);
   }
-}
-
-String _formatTime(int ts) {
-  final dt = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-  final h = dt.hour.toString().padLeft(2, '0');
-  final m = dt.minute.toString().padLeft(2, '0');
-  final s = dt.second.toString().padLeft(2, '0');
-  return '$h:$m:$s';
 }
 
 Widget _build({
   required SuperChatItem item,
   Function(Offset, SuperChatItem)? showMenu,
   RxInt? remains,
-  bool showTime = false,
 }) {
   final bottomColor = ColourUtils.parseColor(item.backgroundBottomColor);
   final border = BorderSide(color: bottomColor);
-  final sendTime = showTime ? _formatTime(item.startSime) : null;
 
   Widget name = Text(
     item.userInfo.uname,
@@ -226,6 +201,21 @@ Widget _build({
         style: const TextStyle(fontSize: 14, color: Colors.grey),
       ),
     );
+  } else {
+    price = Row(
+      crossAxisAlignment: .end,
+      mainAxisAlignment: .spaceBetween,
+      children: [
+        price,
+        Text(
+          DateFormatUtils.format(
+            item.startSime,
+            format: DateFormatUtils.longFormatDs,
+          ),
+          style: TextStyle(color: bottomColor, fontSize: 13.5),
+        ),
+      ],
+    );
   }
 
   Widget top = Container(
@@ -254,25 +244,7 @@ Widget _build({
             children: [name, price],
           ),
         ),
-        if (sendTime != null)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ?remains_,
-              Text(
-                sendTime,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: ColourUtils.parseColor(
-                    item.backgroundPriceColor,
-                  ).withValues(alpha: 0.6),
-                ),
-              ),
-            ],
-          )
-        else
-          ?remains_,
+        ?remains_,
       ],
     ),
   );
@@ -365,16 +337,12 @@ Widget _avatar(String face, String? faceFrame) {
   return avatar;
 }
 
-Future<void> _screenShot(
-  BuildContext context,
-  SuperChatItem item, {
-  required bool showTime,
-}) async {
+Future<void> _screenShot(BuildContext context, SuperChatItem item) async {
   final image = await Screenshot.screenshot(
     context,
     Material(
       type: .transparency,
-      child: _build(item: item, showTime: showTime),
+      child: _build(item: item),
     ),
     constraints: const BoxConstraints(maxWidth: 400),
     pixelRatio: 3,

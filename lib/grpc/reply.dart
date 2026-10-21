@@ -6,7 +6,6 @@ import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
-import 'package:PiliPlus/utils/user_whitelist.dart';
 import 'package:fixnum/fixnum.dart';
 
 abstract final class ReplyGrpc {
@@ -14,16 +13,10 @@ abstract final class ReplyGrpc {
   static var blockAtOnlyReply = Pref.blockAtOnlyReply;
   static var blockReplyAtCount = Pref.blockReplyAtCount;
   static RegExp replyRegExp = RegExp(
-    Pref.parseBanWordToRegex(Pref.banWordForReply),
+    Pref.banWordForReply,
     caseSensitive: false,
   );
   static bool enableFilter = replyRegExp.pattern.isNotEmpty;
-  static Map<int, String> replyBlockedMids = Pref.replyBlockedMids;
-  static int replyMinLevel = Pref.replyMinLevel;
-  static bool keepUpOwnerReply = Pref.keepUpOwnerReply;
-  static bool keepUpTopReply = Pref.keepUpTopReply;
-  static bool keepUpLikeReply = Pref.keepUpLikeReply;
-  static bool keepUpReplyReply = Pref.keepUpReplyReply;
 
   // static Future replyInfo({required int rpid}) {
   //   return _request(
@@ -124,26 +117,11 @@ abstract final class ReplyGrpc {
         reply.content.atNameToMid.length >= blockReplyAtCount!;
   }
 
-  static bool needRemoveGrpc(
-    ReplyInfo reply, {
-    Int64? upMid,
-  }) {
-    final mid = reply.mid.toInt();
-    if (replyBlockedMids.isNotEmpty && replyBlockedMids.containsKey(mid)) {
-      return true;
-    }
-    // fork 白名单优先于一切屏蔽规则（含全局黑名单）
-    if (UserWhitelist.contains(mid)) return false;
-    if (GlobalData().blackMids.contains(mid)) return true;
-    if (_blockReplyAtCount(reply)) return true;
-    if (_blockAtOnlyReply(reply)) return true;
-    if (antiGoodsReply && _needRemoveGoodGrpc(reply)) return true;
-    final replyControl = reply.replyControl;
-    if (keepUpOwnerReply && upMid != null && reply.mid == upMid) return false;
-    if (keepUpTopReply && replyControl.isUpTop) return false;
-    if (keepUpLikeReply && replyControl.upLike) return false;
-    if (keepUpReplyReply && replyControl.upReply) return false;
-    return (replyMinLevel > 0 && reply.member.level.toInt() < replyMinLevel) ||
+  static bool needRemoveGrpc(ReplyInfo reply) {
+    return GlobalData().blackMids.contains(reply.mid.toInt()) ||
+        _blockReplyAtCount(reply) ||
+        _blockAtOnlyReply(reply) ||
+        (antiGoodsReply && _needRemoveGoodGrpc(reply)) ||
         (enableFilter && replyRegExp.hasMatch(reply.content.message));
   }
 
@@ -171,26 +149,16 @@ abstract final class ReplyGrpc {
       MainListReply.fromBuffer,
     );
     if (res case Success(:final response)) {
-      final upMid = response.subjectControl.upMid;
       // keyword filter
-      if (response.hasUpTop() &&
-          needRemoveGrpc(
-            response.upTop,
-            upMid: upMid,
-          )) {
+      if (response.hasUpTop() && needRemoveGrpc(response.upTop)) {
         response.clearUpTop();
       }
 
       if (response.replies.isNotEmpty) {
         response.replies.removeWhere((item) {
-          final hasMatch = needRemoveGrpc(
-            item,
-            upMid: upMid,
-          );
+          final hasMatch = needRemoveGrpc(item);
           if (!hasMatch && item.replies.isNotEmpty) {
-            item.replies.removeWhere((item) {
-              return needRemoveGrpc(item, upMid: upMid);
-            });
+            item.replies.removeWhere(needRemoveGrpc);
           }
           return hasMatch;
         });
@@ -220,13 +188,7 @@ abstract final class ReplyGrpc {
       ),
       DetailListReply.fromBuffer,
     );
-    if (res case Success(:final response)) {
-      final upMid = response.subjectControl.upMid;
-      response.root.replies.removeWhere((item) {
-        return needRemoveGrpc(item, upMid: upMid);
-      });
-    }
-    return res;
+    return res..dataOrNull?.root.replies.removeWhere(needRemoveGrpc);
   }
 
   static Future<LoadingState<DialogListReply>> dialogList({
@@ -247,13 +209,7 @@ abstract final class ReplyGrpc {
       ),
       DialogListReply.fromBuffer,
     );
-    if (res case Success(:final response)) {
-      final upMid = response.subjectControl.upMid;
-      response.replies.removeWhere((item) {
-        return needRemoveGrpc(item, upMid: upMid);
-      });
-    }
-    return res;
+    return res..dataOrNull?.replies.removeWhere(needRemoveGrpc);
   }
 
   static Future<LoadingState<SearchItemReply>> searchItem({

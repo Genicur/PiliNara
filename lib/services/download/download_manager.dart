@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:PiliPlus/http/bili_media_headers.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/utils/extension/file_ext.dart';
@@ -62,13 +61,7 @@ class DownloadManager {
       response = await Request.http11Dio.get<ResponseBody>(
         url.http2https,
         options: Options(
-          headers: {
-            'range': 'bytes=$received-',
-            // 账号拦截器默认会给所有请求补 `Referer: https://www.bilibili.com/`。
-            // 但 APP 通道直链（query 里 platform=android）带 Referer 会被 CDN 直接 403，
-            // 这里显式置空以阻止拦截器的 `??=` 补值。见 BiliMediaHeaders。
-            if (BiliMediaHeaders.isAndroidPlatformUrl(url)) 'referer': '',
-          },
+          headers: {'range': 'bytes=$received-'},
           responseType: ResponseType.stream,
           validateStatus: (status) =>
               status != null &&

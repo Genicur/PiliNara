@@ -24,7 +24,6 @@ class DynamicPanel extends StatelessWidget {
   onSetPubSetting;
   final VoidCallback? onEdit;
   final ValueChanged<int>? onSetReplySubject;
-  final ValueChanged<DynamicItemModel>? onUpdate;
 
   const DynamicPanel({
     super.key,
@@ -39,7 +38,6 @@ class DynamicPanel extends StatelessWidget {
     this.onSetPubSetting,
     this.onEdit,
     this.onSetReplySubject,
-    this.onUpdate,
   });
 
   @override
@@ -78,7 +76,7 @@ class DynamicPanel extends StatelessWidget {
                   'DYNAMIC_TYPE_COURSES_SEASON',
                 }.contains(item.type)
             ? null
-            : () => PageUtils.pushDynDetail(item, onUpdate: onUpdate),
+            : () => PageUtils.pushDynDetail(item),
         onLongPress: showMore,
         onSecondaryTap: PlatformUtils.isMobile ? null : showMore,
         child: Column(

@@ -13,7 +13,6 @@ analyzer:
   exclude:
     - lib/grpc/bilibili/**
     - lib/**/*.g.dart
-    - docs/**
     - android/**
     - ios/**
     - linux/**

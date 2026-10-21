@@ -27,7 +27,6 @@ mixin BlockConfigMixin {
   late final blockColor = Pref.blockColor;
   late final blockLimit = Pref.blockLimit * 1000;
   late final blockSettings = Pref.blockSettings;
-  late final blockSkipWhenSeekIntoSegment = Pref.blockSkipWhenSeekIntoSegment;
   late final enableList = blockSettings
       .where((item) => item.second != SkipType.disable)
       .map((item) => item.first.name)
@@ -42,9 +41,7 @@ mixin BlockMixin on GetxController {
   StreamSubscription<Duration>? _blockListener;
   StreamSubscription<Duration>? get blockListener => _blockListener;
   late final List<SegmentModel> _segmentList = <SegmentModel>[];
-  List<SegmentModel> get segmentList => _segmentList;
   late final RxList<Segment> segmentProgressList = <Segment>[].obs;
-  bool _segmentSourceIsBlock = false;
 
   Timer? _skipTimer;
   late final listKey = GlobalKey<AnimatedListState>();
@@ -84,7 +81,6 @@ mixin BlockMixin on GetxController {
     if (isClosed) return;
     if (_segmentList.isNotEmpty) {
       _blockListener?.cancel();
-      final skipWhenSeekIntoSegment = blockConfig.blockSkipWhenSeekIntoSegment;
       _blockListener = player?.stream.position.listen((position) {
         int currentPos = position.inSeconds;
         if (currentPos != _lastBlockPos) {
@@ -95,9 +91,7 @@ mixin BlockMixin on GetxController {
             //   debugPrint(
             //       '${position.inSeconds},,${item.segment.first},,${item.segment.second},,${item.skipType.name},,${item.hasSkipped}');
             // }
-            if ((msPos <= item.segment.$1 &&
-                    item.segment.$1 <= msPos + 1000) ||
-                (skipWhenSeekIntoSegment && item.segment.contains(msPos))) {
+            if (msPos <= item.segment.$1 && item.segment.$1 <= msPos + 1000) {
               switch (item.skipType) {
                 case SkipType.alwaysSkip:
                   onSkip(item, isSeek: false);
@@ -122,33 +116,26 @@ mixin BlockMixin on GetxController {
     }
   }
 
-  Future<void> handleSBData(
-    List<SegmentItemModel> list, {
-    bool? useBlockConfig,
-    bool? isBlockSource,
-  }) async {
+  Future<void> handleSBData(List<SegmentItemModel> list) async {
     if (isClosed) return;
+
     if (list.isNotEmpty) {
       try {
         Future<void>? future;
-        final effectiveIsBlock = isBlockSource ?? isBlock;
-        final effectiveUseBlockConfig = useBlockConfig ?? effectiveIsBlock;
         final duration = list.first.videoDuration ?? timeLength!;
-        _segmentSourceIsBlock = effectiveIsBlock;
         // segmentList
         _segmentList.addAll(
           list
               .where(
                 (item) =>
-                    (!effectiveUseBlockConfig ||
-                        blockConfig.enableList.contains(item.category)) &&
+                    blockConfig.enableList.contains(item.category) &&
                     item.segment[1] >= item.segment[0],
               )
               .map(
                 (item) {
                   final segmentModel = SegmentModel.fromItemModel(
                     item,
-                    effectiveUseBlockConfig ? blockConfig : null,
+                    isBlock ? blockConfig : null,
                   );
                   if (segmentModel.segment == const (0, 0)) {
                     videoLabel?.value +=
@@ -260,7 +247,7 @@ mixin BlockMixin on GetxController {
     if (autoPlay && Pref.blockToast) {
       _showBlockToast('已跳过${item.segmentType.shortTitle}片段');
     }
-    if (_segmentSourceIsBlock && Pref.blockTrack) {
+    if (isBlock && Pref.blockTrack) {
       SponsorBlock.viewedVideoSponsorTime(item.uuid);
     }
   }
@@ -389,14 +376,14 @@ mixin BlockMixin on GetxController {
     showDialog(
       context: Get.context!,
       builder: (context) => SimpleDialog(
-        clipBehavior: Clip.hardEdge,
-        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        clipBehavior: .hardEdge,
+        contentPadding: const .symmetric(vertical: 10),
         children: _segmentList
             .map(
               (item) => ListTile(
                 onTap: () {
                   Get.back();
-                  if (_segmentSourceIsBlock) {
+                  if (isBlock) {
                     _showVoteDialog(item);
                   }
                 },
@@ -487,7 +474,6 @@ mixin BlockMixin on GetxController {
   void resetBlock() {
     cancelBlockListener();
     _lastBlockPos = null;
-    _segmentSourceIsBlock = false;
     videoLabel?.value = '';
     _segmentList.clear();
     segmentProgressList.clear();

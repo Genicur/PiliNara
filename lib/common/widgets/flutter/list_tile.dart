@@ -756,11 +756,6 @@ class ListTile extends StatelessWidget {
     final ListTileThemeData defaults = theme.useMaterial3
         ? _LisTileDefaultsM3(context)
         : _LisTileDefaultsM2(context, listTileStyle);
-    final ShapeBorder? effectiveShape =
-        shape ??
-        tileTheme.shape ??
-        theme.listTileTheme.shape ??
-        defaults.shape;
 
     final Color backgroundColor =
         tileColor ??
@@ -1001,7 +996,7 @@ class ListTile extends StatelessWidget {
     }
 
     return InkWell(
-      customBorder: effectiveShape,
+      customBorder: shape ?? tileTheme.shape,
       onTap: enabled ? onTap : null,
       onTapUp: enabled ? onTapUp : null,
       onLongPress: enabled ? onLongPress : null,

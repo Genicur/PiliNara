@@ -12,7 +12,6 @@ import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/reply_scheme_helper.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/widgets.dart' show BoxConstraints, WidgetsBinding;
-import 'package:easy_debounce/easy_throttle.dart';
 import 'package:get/get.dart';
 
 class VideoReplyController extends ReplyController<MainListReply>
@@ -32,9 +31,6 @@ class VideoReplyController extends ReplyController<MainListReply>
 
   final String heroTag;
   late final videoCtr = Get.find<VideoDetailController>(tag: heroTag);
-
-  // 是否正在进入应用内小窗
-  bool isEnteringPip = false;
 
   MentionItem? get mentionItem {
     if (videoCtr.isUgc) {
@@ -68,22 +64,19 @@ class VideoReplyController extends ReplyController<MainListReply>
   }
 
   void replyReply(ReplyInfo replyItem, int? id) {
-    EasyThrottle.throttle('replyReply', const Duration(milliseconds: 500), () {
-      videoCtr.childKey.currentState?.showBottomSheet(
-        constraints: const BoxConstraints(),
-        (context) => VideoReplyReplyPanel(
-          id: id,
-          oid: replyItem.oid.toInt(),
-          rpid: replyItem.id.toInt(),
-          firstFloor: replyItem.replyControl.isNote ? null : replyItem,
-          replyType: videoCtr.videoType.replyType,
-          isVideoDetail: true,
-          isNested: videoCtr.scrollKey.currentContext != null,
-          heroTag: heroTag,
-          upMid: upMid,
-        ),
-      );
-    });
+    videoCtr.childKey.currentState?.showBottomSheet(
+      constraints: const BoxConstraints(),
+      (context) => VideoReplyReplyPanel(
+        id: id,
+        oid: replyItem.oid.toInt(),
+        rpid: replyItem.id.toInt(),
+        firstFloor: replyItem.replyControl.isNote ? null : replyItem,
+        replyType: videoCtr.videoType.replyType,
+        isVideoDetail: true,
+        isNested: videoCtr.scrollKey.currentContext != null,
+        upMid: upMid,
+      ),
+    );
   }
 
   @override
@@ -95,17 +88,4 @@ class VideoReplyController extends ReplyController<MainListReply>
     cursorNext: cursorNext,
     offset: paginationReply?.nextOffset,
   );
-
-  @override
-  void onClose() {
-    if (kDebugMode) {
-      print(
-        '[PiliNara] VideoReplyController onClose called, isEnteringPip: $isEnteringPip',
-      );
-    }
-    if (isEnteringPip) {
-      return;
-    }
-    super.onClose();
-  }
 }

@@ -7,8 +7,6 @@ import 'package:PiliPlus/utils/parse_string.dart';
 class RcmdVideoItemAppModel extends BaseRcmdVideoItemModel {
   int? get id => aid;
   String? talkBack;
-  String? tname;
-  int? canPlay;
 
   String? cardType;
   ThreePoint? threePoint;
@@ -42,14 +40,12 @@ class RcmdVideoItemAppModel extends BaseRcmdVideoItemModel {
     param = int.parse(json['param']);
     uri = json['uri'];
     talkBack = json['talk_back'];
-    canPlay = json['can_play'];
 
     if (goto == 'bangumi') {
       pgcBadge = json['cover_right_text'];
     }
 
     cardType = json['card_type'];
-    tname = json['args']?['tname'];
     threePoint = json['three_point_v2'] != null
         ? ThreePoint.fromJson(json['three_point_v2'])
         : null;

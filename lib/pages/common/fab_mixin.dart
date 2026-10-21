@@ -4,7 +4,6 @@ mixin BaseFabMixin<T extends StatefulWidget> on State<T>, TickerProvider {
   late bool _isFabVisible = true;
   AnimationController get fabAnimationCtr;
   Animation<Offset> get fabAnimation;
-  bool isEnteringPip = false;
 
   AnimationController _initController() {
     return AnimationController(

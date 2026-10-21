@@ -53,51 +53,12 @@ abstract final class LoginHttp {
     }
   }
 
-  /// 手机端（`mobi_app=android` + 手机端 appkey）扫码登录。
-  ///
-  /// 只有手机端签发的 access_token 才能让 APP 端 PlayView 下发 4K / 1080P+
-  /// 的 dash 流；HD 端（[getHDcode]）签发的 token 服务端只给到 1080P。
-  @pragma('vm:notify-debugger-on-exception')
-  static Future<LoadingState<({String authCode, String url})>>
-  getPhoneCode() async {
-    final params = {
-      'local_id': '0',
-      'platform': 'android',
-      'mobi_app': 'android',
-    };
-    AppSign.appSign(
-      params,
-      appkey: Constants.phoneAppKey,
-      appsec: Constants.phoneAppSec,
-    );
-    final res = await Request().post(Api.getTVCode, queryParameters: params);
-
-    if (res.data['code'] == 0) {
-      try {
-        final Map<String, dynamic> data = res.data['data'];
-        return Success((authCode: data['auth_code'], url: data['url']));
-      } catch (e, s) {
-        return Error('$e\n\n$s');
-      }
-    } else {
-      return Error(res.data['message']);
-    }
-  }
-
-  static Future codePoll(String authCode, {bool phone = false}) async {
+  static Future codePoll(String authCode) async {
     final params = {
       'auth_code': authCode,
       'local_id': '0',
     };
-    if (phone) {
-      AppSign.appSign(
-        params,
-        appkey: Constants.phoneAppKey,
-        appsec: Constants.phoneAppSec,
-      );
-    } else {
-      AppSign.appSign(params);
-    }
+    AppSign.appSign(params);
     final res = await Request().post(Api.qrcodePoll, queryParameters: params);
     return {
       'status': res.data['code'] == 0,

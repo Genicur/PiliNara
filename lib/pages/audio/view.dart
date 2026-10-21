@@ -3,7 +3,6 @@ import 'dart:math' show min;
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/gesture/tap_gesture_recognizer.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -26,8 +25,6 @@ import 'package:PiliPlus/pages/video/widgets/header_control.dart'
     show HeaderControlState;
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart';
-import 'package:PiliPlus/services/pip_overlay_service.dart';
-import 'package:PiliPlus/services/live_pip_overlay_service.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
@@ -35,7 +32,6 @@ import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
-import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -54,7 +50,7 @@ class AudioPage extends StatefulWidget {
   @override
   State<AudioPage> createState() => _AudioPageState();
 
-  static Future<void>? toAudioPage({
+  static void toAudioPage({
     int? id,
     required int oid,
     List<int>? subId,
@@ -64,23 +60,20 @@ class AudioPage extends StatefulWidget {
     Duration? start,
     String? audioUrl,
     int? extraId,
-  }) {
-    heroTag ??= Utils.makeHeroTag(oid);
-    return Get.toNamed(
-      '/audio',
-      arguments: {
-        'id': ?id,
-        'oid': oid,
-        'subId': ?subId,
-        'from': from,
-        'itemType': itemType,
-        'heroTag': heroTag,
-        'start': ?start,
-        'audioUrl': ?audioUrl,
-        'extraId': ?extraId,
-      },
-    );
-  }
+  }) => Get.toNamed(
+    '/audio',
+    arguments: {
+      'id': ?id,
+      'oid': oid,
+      'subId': ?subId,
+      'from': from,
+      'itemType': itemType,
+      'heroTag': ?heroTag,
+      'start': ?start,
+      'audioUrl': ?audioUrl,
+      'extraId': ?extraId,
+    },
+  );
 }
 
 extension _ListOrderExt on ListOrder {
@@ -88,30 +81,10 @@ extension _ListOrderExt on ListOrder {
 }
 
 class _AudioPageState extends State<AudioPage> {
-  late final _controller = Get.put(
+  final _controller = Get.put(
     AudioController(),
-    tag: Get.arguments['heroTag'] ?? Utils.generateRandomString(8),
+    tag: Utils.generateRandomString(8),
   );
-
-  @override
-  void initState() {
-    super.initState();
-    // 进入听视频界面时，确保关闭所有应用内小窗
-    if (PipOverlayService.isInPipMode) {
-      PipOverlayService.stopPip(
-        callOnClose: false,
-        immediate: true,
-        releaseSavedOwner: true,
-        // 小窗 owner 的视频页仍在栈内时只暂停不 dispose，避免破坏其计数
-        disposeSavedOwnerPlayer: VideoStackManager.getCount() == 0,
-      );
-    }
-    if (LivePipOverlayService.isInPipMode) {
-      // 旧直播 controller 就此退休，关闭其弹幕流/计时器/通知条目防泄漏
-      LivePipOverlayService.cleanupSavedController();
-      LivePipOverlayService.stopLivePip(callOnClose: false);
-    }
-  }
 
   @override
   void didChangeDependencies() {
@@ -140,7 +113,7 @@ class _AudioPageState extends State<AudioPage> {
             }),
           Builder(
             builder: (context) {
-              return StaticPopupMenuButton<ListOrder>(
+              return PopupMenuButton<ListOrder>(
                 tooltip: '排序',
                 icon: const Icon(Icons.sort, size: 22),
                 initialValue: _controller.order,
@@ -986,10 +959,7 @@ class _AudioPageState extends State<AudioPage> {
                                 type: ImageType.avatar,
                               ),
                             Text(
-                              remarkedName(
-                                audioItem.owner.mid.toInt(),
-                                audioItem.owner.name,
-                              ),
+                              audioItem.owner.name,
                             ),
                           ],
                         ),

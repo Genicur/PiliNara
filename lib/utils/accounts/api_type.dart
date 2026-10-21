@@ -24,7 +24,6 @@ abstract final class ApiType {
       // progress
       Api.pgcInfo,
       Api.pugvInfo,
-      Api.playInfo,
 
       Api.ab2c,
       Api.liveRoomInfo,
@@ -35,7 +34,6 @@ abstract final class ApiType {
       Api.seasonArchives,
       Api.seriesArchives,
       Api.liveRoomDmToken,
-      Api.mobileHeartBeat,
       Api.liveRoomDmPrefetch,
       Api.superChatMsg,
       Api.getLiveInfoByUser,

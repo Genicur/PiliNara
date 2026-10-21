@@ -53,11 +53,11 @@ class _SeasonPanelState extends State<SeasonPanel> {
 
     _videoDetailController.seasonCid = ugcIntroController.cid.value != 0
         ? (videoDetail.pages?.isNotEmpty == true
-              ? videoDetail.listOrder.isDesc
+              ? videoDetail.isPageReversed
                     ? videoDetail.pages!.last.cid
                     : videoDetail.pages!.first.cid
               : ugcIntroController.cid.value)
-        : videoDetail.listOrder.isDesc
+        : videoDetail.isPageReversed
         ? videoDetail.pages!.last.cid
         : videoDetail.pages!.first.cid;
 

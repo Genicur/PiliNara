@@ -82,12 +82,6 @@ List<SettingsModel> get extraSettings => [
         .put(SettingBoxKey.pgcSkipType, value.index)
         .whenComplete(setState),
   ),
-  NormalModel(
-    title: 'AI 视频总结',
-    leading: const Icon(Icons.auto_awesome),
-    getSubtitle: () => '配置 OpenAI 兼容 API 和提示词模板',
-    onTap: (context, _) => Get.toNamed('/aiSetting'),
-  ),
   const SwitchModel(
     title: '禁用 SSL 证书验证',
     subtitle: '谨慎开启，禁用容易受到中间人攻击',
@@ -99,13 +93,6 @@ List<SettingsModel> get extraSettings => [
     title: '使用外部浏览器打开链接',
     leading: Icon(Icons.open_in_browser),
     setKey: SettingBoxKey.openInBrowser,
-    defaultVal: false,
-  ),
-  const SwitchModel(
-    title: '点击当前页时回顶并刷新',
-    subtitle: '关闭后保持原有回顶/重复点击刷新行为',
-    leading: Icon(Icons.vertical_align_top),
-    setKey: SettingBoxKey.enableCurrentPageRefresh,
     defaultVal: false,
   ),
   NormalModel(
@@ -139,13 +126,6 @@ List<SettingsModel> get extraSettings => [
     title: '记录搜索历史',
     leading: Icon(Icons.history),
     setKey: SettingBoxKey.recordSearchHistory,
-    defaultVal: true,
-  ),
-  const SwitchModel(
-    title: '显示视频推荐理由',
-    subtitle: '显示首页视频卡片下方的已关注，x万点赞的标签',
-    leading: Icon(Icons.label_outline),
-    setKey: SettingBoxKey.showRcmdReason,
     defaultVal: true,
   ),
   SwitchModel(
@@ -296,13 +276,6 @@ List<SettingsModel> get extraSettings => [
         Update.checkUpdate(false);
       }
     },
-  ),
-  const SwitchModel(
-    title: '检测预发布版本更新',
-    subtitle: '检查更新时同时包含 pre-release 版本',
-    leading: Icon(Icons.preview_outlined),
-    setKey: SettingBoxKey.preReleaseUpdate,
-    defaultVal: false,
   ),
 ];
 

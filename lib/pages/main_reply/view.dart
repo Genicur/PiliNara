@@ -30,14 +30,12 @@ class MainReplyPage extends StatefulWidget {
   static void toMainReplyPage({
     required int oid,
     required int replyType,
-    String? heroTag,
   }) {
     Get.toNamed(
       '/mainReply',
       arguments: {
         'oid': oid,
         'replyType': replyType,
-        'heroTag': heroTag,
       },
     );
   }
@@ -230,7 +228,6 @@ class _MainReplyPageState extends State<MainReplyPage>
             isVideoDetail: false,
             replyType: _controller.replyType,
             firstFloor: replyItem,
-            heroTag: _controller.heroTag,
             upMid: _controller.upMid,
           ),
         ).constraintWidth(),

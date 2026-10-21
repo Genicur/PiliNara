@@ -1,8 +1,5 @@
-import 'dart:io';
-
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/dial_prefix.dart';
-import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
@@ -10,7 +7,6 @@ import 'package:PiliPlus/common/widgets/scroll_physics.dart' show tabBarView;
 import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/pages/login/controller.dart';
-import 'package:PiliPlus/pages/login/web_login_view.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/extension/widget_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
@@ -38,7 +34,6 @@ class _LoginPageState extends State<LoginPage> {
   // 二维码生成时间
   bool showPassword = false;
   GlobalKey globalKey = GlobalKey();
-  GlobalKey phoneGlobalKey = GlobalKey();
 
   @override
   void didChangeDependencies() {
@@ -173,122 +168,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// 手机端扫码登录：签发的 access_token 才能在 APP 端 PlayView 拿到 4K。
-  Widget loginByPhoneQRCode(ThemeData theme) {
-    return Column(
-      children: [
-        const SizedBox(height: 20),
-        const Text('使用 bilibili 官方 App 扫码登录（手机端）'),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            '手机端凭证才可解析 4K / 1080P 高码率视频',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.labelMedium!.copyWith(
-              color: theme.colorScheme.primary,
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Obx(
-          () => Text(
-            '剩余有效时间: ${_loginPageCtr.phoneQrCodeLeftTime} 秒',
-            style: TextStyle(
-              fontFeatures: const [FontFeature.tabularFigures()],
-              color: theme.colorScheme.primaryFixedDim,
-            ),
-          ),
-        ),
-        const SizedBox(height: 5),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextButton.icon(
-              onPressed: _loginPageCtr.refreshPhoneQRCode,
-              icon: const Icon(Icons.refresh),
-              label: const Text('刷新二维码'),
-            ),
-            TextButton.icon(
-              onPressed: () async {
-                SmartDialog.showLoading(msg: '正在生成截图');
-                final boundary =
-                    phoneGlobalKey.currentContext!.findRenderObject()
-                        as RenderRepaintBoundary;
-                final image = await boundary.toImage(pixelRatio: 3);
-                final byteData = await image.toByteData(format: .png);
-                final pngBytes = byteData!.buffer.asUint8List();
-                image.dispose();
-                SmartDialog.dismiss();
-                final picName =
-                    "${Constants.appName}_loginQRCode_phone_${_loginPageCtr.phoneCodeInfo.value.data.authCode.hashCode.toUnsigned(32).toRadixString(16)}";
-                ImageUtils.saveByteImg(bytes: pngBytes, fileName: picName);
-              },
-              icon: const Icon(Icons.save),
-              label: const Text('保存至相册'),
-            ),
-            if (kDebugMode || PlatformUtils.isMobile)
-              TextButton.icon(
-                onPressed: () => PageUtils.launchURL(
-                  'bilibili://browser?url=${Uri.encodeComponent(_loginPageCtr.phoneCodeInfo.value.data.url)}',
-                  mode: LaunchMode.externalNonBrowserApplication,
-                ),
-                icon: const Icon(Icons.open_in_browser_outlined),
-                label: const Text('其他应用打开'),
-              ),
-          ],
-        ),
-        RepaintBoundary(
-          key: phoneGlobalKey,
-          child: Obx(
-            () => switch (_loginPageCtr.phoneCodeInfo.value) {
-              Loading() => const SizedBox(
-                height: 200,
-                width: 200,
-                child: m3eLoading,
-              ),
-              Success(:final response) => Container(
-                width: 200,
-                height: 200,
-                color: Colors.white,
-                padding: const EdgeInsets.all(8),
-                child: PrettyQrView.data(
-                  data: response.url,
-                  decoration: const PrettyQrDecoration(
-                    shape: PrettyQrSquaresSymbol(
-                      color: Colors.black87,
-                    ),
-                  ),
-                ),
-              ),
-              Error(:final errMsg) => HttpError(
-                isSliver: false,
-                errMsg: errMsg,
-                onReload: _loginPageCtr.refreshPhoneQRCode,
-              ),
-            },
-          ),
-        ),
-        const SizedBox(height: 10),
-        Obx(
-          () => Text(
-            _loginPageCtr.phoneStatusQRCode.value,
-            style: TextStyle(color: theme.colorScheme.secondaryFixedDim),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-          child: Text(
-            '请务必在 ${Constants.appName} 开源仓库等可信渠道下载安装。',
-            style: theme.textTheme.labelSmall!.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget loginByCookie(ThemeData theme) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -329,49 +208,8 @@ class _LoginPageState extends State<LoginPage> {
           icon: const Icon(Icons.login),
           label: const Text('登录'),
         ),
-        if (Platform.isAndroid) ...[
-          const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: _openWebLogin,
-            icon: const Icon(Icons.language_outlined),
-            label: const Text('网页登录获取 Cookie'),
-          ),
-        ],
       ],
     );
-  }
-
-  Future<void> _openWebLogin() async {
-    final loggedIn = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: 0.92,
-        child: Column(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.language_outlined),
-              title: const Text('网页登录'),
-              trailing: IconButton(
-                tooltip: '关闭',
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(false),
-              ),
-            ),
-            Expanded(
-              child: WebLoginView(
-                controller: _loginPageCtr,
-                padding: MediaQuery.viewPaddingOf(context).copyWith(top: 0),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (loggedIn == true && mounted) {
-      Get.back();
-    }
   }
 
   Widget loginByPassword(ThemeData theme) {
@@ -537,7 +375,7 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(width: 12),
                 Builder(
                   builder: (context) {
-                    return StaticPopupMenuButton(
+                    return PopupMenuButton(
                       padding: EdgeInsets.zero,
                       tooltip:
                           '选择国际冠码，'
@@ -717,15 +555,6 @@ class _LoginPageState extends State<LoginPage> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.phone_android),
-                            Text(' 手机扫码'),
-                          ],
-                        ),
-                      ),
-                      Tab(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
                             Icon(Icons.cookie_outlined),
                             Text(' Cookie'),
                           ],
@@ -747,7 +576,6 @@ class _LoginPageState extends State<LoginPage> {
                 Tab(icon: Icon(Icons.password), text: '密码'),
                 Tab(icon: Icon(Icons.sms_outlined), text: '短信'),
                 Tab(icon: Icon(Icons.qr_code), text: '扫码'),
-                Tab(icon: Icon(Icons.phone_android), text: '手机扫码'),
                 Tab(icon: Icon(Icons.cookie_outlined), text: 'Cookie'),
               ],
               controller: _loginPageCtr.tabController,
@@ -767,7 +595,6 @@ class _LoginPageState extends State<LoginPage> {
                     tabViewOuter(loginByPassword(theme)),
                     tabViewOuter(loginBySmS(theme)),
                     tabViewOuter(loginByQRCode(theme)),
-                    tabViewOuter(loginByPhoneQRCode(theme)),
                     tabViewOuter(loginByCookie(theme)),
                   ],
                 ),

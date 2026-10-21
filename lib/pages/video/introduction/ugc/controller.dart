@@ -27,7 +27,6 @@ import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/pages/video/related/controller.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
-import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
@@ -38,6 +37,7 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/request_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -56,9 +56,6 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   // 关注状态 默认未关注
   late final Rx<RelationData> followStatus = Rx(RelationData());
   late final RxMap staffRelations = {}.obs;
-
-  // 是否正在进入应用内小窗
-  bool isEnteringPip = false;
 
   // 是否点踩
   final RxBool hasDislike = false.obs;
@@ -114,7 +111,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         // keep reversed pages
         response
           ..pages = currentDetail.pages
-          ..listOrder = currentDetail.listOrder;
+          ..isPageReversed = currentDetail.isPageReversed;
       }
       videoDetail.value = response;
       try {
@@ -333,21 +330,22 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
               PiliAndroidHelper.openUrl(videoUrl);
             },
           ),
-          ListTile(
-            dense: true,
-            title: const Text(
-              '分享视频',
-              style: TextStyle(fontSize: 14),
+          if (PlatformUtils.isMobile)
+            ListTile(
+              dense: true,
+              title: const Text(
+                '分享视频',
+                style: TextStyle(fontSize: 14),
+              ),
+              onTap: () {
+                Get.back();
+                ShareUtils.shareText(
+                  '${videoDetail.title} '
+                  'UP主: ${videoDetail.owner!.name!}'
+                  ' - $videoUrl',
+                );
+              },
             ),
-            onTap: () {
-              Get.back();
-              ShareUtils.shareText(
-                '${videoDetail.title} '
-                'UP主: ${videoDetail.owner!.name!}'
-                ' - $videoUrl',
-              );
-            },
-          ),
           if (isLogin)
             ListTile(
               dense: true,
@@ -468,7 +466,6 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   Future<bool> onChangeEpisode(
     BaseEpisodeItem episode, {
     bool isStein = false,
-    bool manual = false,
   }) async {
     try {
       final String bvid = episode.bvid ?? this.bvid;
@@ -484,10 +481,6 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       }
       if (cid == null) {
         return false;
-      }
-
-      if (manual) {
-        videoDetailCtr.plPlayerController.markManualEpisodeChange();
       }
 
       final String? cover = episode.cover;
@@ -573,34 +566,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     }
   }
 
-  @override
-  void onClose() {
-    if (kDebugMode) {
-      logger.i(
-        '[UgcIntroController] onClose() called, isEnteringPip: $isEnteringPip',
-      );
-    }
-    if (isEnteringPip) return;
-    super.onClose();
-  }
-
-  bool _isShuffleMode(bool isPart) {
-    final videoDetail = this.videoDetail.value;
-    if (isPart) return videoDetail.listOrder.isShuffle;
-    if (videoDetailCtr.isPlayAll) return videoDetailCtr.listOrder.isShuffle;
-    if (videoDetail.ugcSeason != null) {
-      return videoDetail
-          .ugcSeason!
-          .sections![videoDetailCtr.seasonIndex.value]
-          .listOrder
-          .isShuffle;
-    }
-    return false;
-  }
-
   /// 播放上一个
   @override
-  bool prevPlay({bool skipPart = false, bool manual = false}) {
+  bool prevPlay([bool skipPart = false]) {
     final List<BaseEpisodeItem> episodes = <BaseEpisodeItem>[];
     bool isPart = false;
 
@@ -623,7 +591,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       (e) =>
           e.cid ==
           (skipPart
-              ? videoDetail.listOrder.isDesc
+              ? videoDetail.isPageReversed
                     ? videoDetail.pages!.last.cid
                     : videoDetail.pages!.first.cid
               : this.cid.value),
@@ -636,10 +604,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     if (prevIndex < 0) {
       if (isPart &&
           (videoDetailCtr.isPlayAll || videoDetail.ugcSeason != null)) {
-        return prevPlay(skipPart: true, manual: manual);
-      }
-      if (_isShuffleMode(isPart)) {
-        return false;
+        return prevPlay(true);
       }
       if (playRepeat == PlayRepeat.listCycle) {
         prevIndex = episodes.length - 1;
@@ -658,7 +623,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     }
 
     if (cid != this.cid.value) {
-      onChangeEpisode(episodes[prevIndex], manual: manual);
+      onChangeEpisode(episodes[prevIndex]);
       return true;
     } else {
       return false;
@@ -667,7 +632,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
 
   /// 列表循环或者顺序播放时，自动播放下一个
   @override
-  bool nextPlay({bool skipPart = false, bool manual = false}) {
+  bool nextPlay([bool skipPart = false]) {
     try {
       final List<BaseEpisodeItem> episodes = <BaseEpisodeItem>[];
       bool isPart = false;
@@ -708,7 +673,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         (e) =>
             e.cid ==
             (skipPart
-                ? videoDetail.listOrder.isDesc
+                ? videoDetail.isPageReversed
                       ? videoDetail.pages!.last.cid
                       : videoDetail.pages!.first.cid
                 : this.cid.value),
@@ -726,12 +691,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       if (nextIndex >= episodes.length) {
         if (isPart &&
             (videoDetailCtr.isPlayAll || videoDetail.ugcSeason != null)) {
-          return nextPlay(skipPart: true, manual: manual);
+          return nextPlay(true);
         }
 
-        if (_isShuffleMode(isPart)) {
-          return false;
-        }
         if (playRepeat == PlayRepeat.listCycle) {
           nextIndex = 0;
         } else if (playRepeat == PlayRepeat.autoPlayRelated &&
@@ -752,7 +714,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       }
 
       if (cid != this.cid.value) {
-        onChangeEpisode(episodes[nextIndex], manual: manual);
+        onChangeEpisode(episodes[nextIndex]);
         return true;
       } else {
         return false;

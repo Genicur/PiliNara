@@ -29,8 +29,6 @@ abstract class CommonSearchPanelState<
     with AutomaticKeepAliveClientMixin {
   SearchPanelController<R, T> get controller;
 
-  bool _isLoadingMore = false;
-
   late ColorScheme colorScheme;
 
   @override
@@ -74,7 +72,10 @@ abstract class CommonSearchPanelState<
   Widget _buildBody(LoadingState<List<T>?> loadingState) {
     return switch (loadingState) {
       Loading() => buildLoading,
-      Success(:final response) => buildSuccess(response),
+      Success(:final response) =>
+        response != null && response.isNotEmpty
+            ? buildList(response)
+            : HttpError(onReload: controller.onReload),
       Error(:final errMsg) => HttpError(
         errMsg: errMsg,
         onReload: controller.onReload,
@@ -82,130 +83,7 @@ abstract class CommonSearchPanelState<
     };
   }
 
-  @protected
-  Widget buildSuccess(List<T>? response) {
-    if (response == null || response.isEmpty) {
-      return HttpError(onReload: controller.onReload);
-    }
-    return buildResults(controller.filterKeywords(response, getTitle));
-  }
-
-  @protected
-  Widget buildResults(List<T> list, {List<Widget> leading = const []}) {
-    if (list.isEmpty && leading.isEmpty) return _buildFilteredOut();
-    final showLoadMore = controller.hasKeywordFilter &&
-        !controller.isEnd && list.length <= 5;
-    if (leading.isEmpty && !showLoadMore) return buildList(list);
-    return SliverMainAxisGroup(
-      slivers: [
-        ...leading,
-        if (list.isNotEmpty) buildList(list),
-        if (showLoadMore) _buildInlineLoadMore(),
-      ],
-    );
-  }
-
-  Future<void> _onLoadMoreWithCooldown() async {
-    if (_isLoadingMore || controller.isEnd) return;
-    setState(() => _isLoadingMore = true);
-    try {
-      await controller.onLoadMore();
-      await Future.delayed(const Duration(milliseconds: 600));
-    } finally {
-      if (mounted) setState(() => _isLoadingMore = false);
-    }
-  }
-
-  Widget _buildFilteredOut() {
-    return SliverFillRemaining(
-      hasScrollBody: false,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.filter_list_off,
-                size: 48,
-                color: colorScheme.outline,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '当前页结果已被关键词过滤',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                controller.isEnd
-                    ? '没有更多结果，请调整或清除关键词'
-                    : '可以继续加载更多结果，直到找到符合条件的内容',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colorScheme.outline,
-                ),
-              ),
-              if (!controller.isEnd) ...[
-                const SizedBox(height: 16),
-                FilledButton.tonalIcon(
-                  onPressed:
-                      _isLoadingMore ? null : _onLoadMoreWithCooldown,
-                  icon: _isLoadingMore
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.keyboard_double_arrow_down, size: 18),
-                  label: Text(_isLoadingMore ? '加载中...' : '继续加载'),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '加载完成后方可进行下次加载，避免触发频率限制',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: colorScheme.outline,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget? buildHeader() => null;
-
-  Widget _buildInlineLoadMore() {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Center(
-          child: FilledButton.tonalIcon(
-            onPressed:
-                _isLoadingMore ? null : _onLoadMoreWithCooldown,
-            icon: _isLoadingMore
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.keyboard_double_arrow_down, size: 18),
-            label: Text(_isLoadingMore ? '加载中...' : '继续加载'),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String? getTitle(T item) => null;
 
   Widget buildList(List<T> list);
 }

@@ -33,40 +33,37 @@ void showReplyCopyDialog(
               buttonItems.add(
                 ContextMenuButtonItem(
                   onPressed: () {
-                    final escapedText = RegExp.escape(state.selectedText!);
+                    String text = RegExp.escape(state.selectedText!);
+                    if (ReplyGrpc.enableFilter) text = '|$text';
 
                     showConfirmDialog(
                       context: context,
-                      title: const Text('是否将以下内容加入评论过滤：'),
-                      content: Text(
-                        escapedText,
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: .bold,
+                      title: const Text('是否确认评论过滤的变更：'),
+                      content: Text.rich(
+                        TextSpan(
+                          text: ReplyGrpc.replyRegExp.pattern,
+                          children: [
+                            TextSpan(
+                              text: text,
+                              style: const TextStyle(
+                                color: Colors.green,
+                                fontWeight: .bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       onConfirm: () {
-                        final currentStored = Pref.banWordForReply;
-                        final existingKeywords = currentStored.isEmpty
-                            ? <String>[]
-                            : currentStored.split('\n');
-                        if (existingKeywords.contains(escapedText)) {
-                          SmartDialog.showToast('该关键词已在过滤列表中');
-                          return;
-                        }
-                        final newStored = currentStored.isEmpty
-                            ? escapedText
-                            : '$currentStored\n$escapedText';
-                        GStorage.setting.put(
-                          SettingBoxKey.banWordForReply,
-                          newStored,
-                        );
-                        final newPattern = Pref.parseBanWordToRegex(newStored);
+                        final filter = ReplyGrpc.replyRegExp.pattern + text;
                         ReplyGrpc.replyRegExp = RegExp(
-                          newPattern,
+                          filter,
                           caseSensitive: true,
                         );
                         ReplyGrpc.enableFilter = true;
+                        GStorage.setting.put(
+                          SettingBoxKey.banWordForReply,
+                          filter,
+                        );
                         SmartDialog.showToast('已保存');
                       },
                     );

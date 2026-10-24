@@ -5,6 +5,7 @@ import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/button/toolbar_icon_button.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/draggable_sheet/dyn.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/flutter/text_field/controller.dart';
 import 'package:PiliPlus/common/widgets/flutter/text_field/text_field.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
@@ -378,7 +379,7 @@ class _CreateDynPanelState extends CommonRichTextPubPageState<CreateDynPanel> {
     final color = _isPrivate.value
         ? theme.colorScheme.error
         : theme.colorScheme.secondary;
-    return PopupMenuButton<bool>(
+    return StaticPopupMenuButton<bool>(
       requestFocus: false,
       initialValue: _isPrivate.value,
       onSelected: _isPrivate.call,
@@ -434,7 +435,7 @@ class _CreateDynPanelState extends CommonRichTextPubPageState<CreateDynPanel> {
     final color = _replyOption.value == ReplyOptionType.close
         ? theme.colorScheme.error
         : theme.colorScheme.secondary;
-    return PopupMenuButton<ReplyOptionType>(
+    return StaticPopupMenuButton<ReplyOptionType>(
       requestFocus: false,
       initialValue: _replyOption.value,
       onSelected: (item) => _replyOption.value = item,

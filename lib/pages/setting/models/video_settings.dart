@@ -4,10 +4,13 @@ import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
+import 'package:PiliPlus/pages/setting/widgets/cdn_node_dialog.dart';
+import 'package:PiliPlus/pages/setting/widgets/cdn_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/ordered_multi_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/plugin/pl_player/models/audio_output_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/hwdec_type.dart';
+import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/filtering_text.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -53,13 +56,26 @@ List<SettingsModel> get videoSettings => [
       ),
     ),
   ),
-  NormalModel(
-    title: 'CDN 设置',
-    leading: const Icon(MdiIcons.cloudPlusOutline),
-    getSubtitle: () =>
-        '当前使用：${VideoUtils.cdnService.desc}，部分 CDN 可能失效，如无法播放请尝试切换',
-    onTap: _showCDNDialog,
-  ),
+  // 【会员试用开启时不显示 CDN 相关设置】
+  // APP 通道直链的签名与节点绑定，换 host 会 403，取流时已跳过 CDN 替换；
+  // 若仍展示这些设置，用户会误以为生效（实际不会），故直接隐藏。
+  // 关闭「无限试用会员画质」后恢复可见并照常工作。
+  if (!Pref.unlimitedVipQuality) ...[
+    NormalModel(
+      title: 'CDN 设置',
+      leading: const Icon(MdiIcons.cloudPlusOutline),
+      getSubtitle: () =>
+          '当前使用：${VideoUtils.effectiveCdnDesc()}，部分 CDN 可能失效，如无法播放请尝试切换',
+      onTap: _showCDNDialog,
+    ),
+    const SwitchModel(
+      title: 'CDN 测速',
+      leading: Icon(Icons.speed),
+      subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
+      setKey: SettingBoxKey.cdnSpeedTest,
+      defaultVal: true,
+    ),
+  ],
   NormalModel(
     title: '直播 CDN 设置',
     leading: const Icon(MdiIcons.cloudPlusOutline),
@@ -67,29 +83,68 @@ List<SettingsModel> get videoSettings => [
     onTap: _showLiveCDNDialog,
   ),
   const SwitchModel(
-    title: 'CDN 测速',
-    leading: Icon(Icons.speed),
-    subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
-    setKey: SettingBoxKey.cdnSpeedTest,
+    title: '无限试用会员画质',
+    leading: Icon(Icons.workspace_premium_outlined),
+    subtitle:
+        '通过 APP 端接口获取 4K/1080P+/HDR/8K 视频流，'
+        '非大会员账号也可使用；开启时 CDN 设置不生效（直链签名与节点绑定）',
+    setKey: SettingBoxKey.unlimitedVipQuality,
     defaultVal: true,
   ),
-  SwitchModel(
-    title: '音频不跟随 CDN 设置',
-    subtitle: '直接采用备用 URL，可解决部分视频无声',
-    leading: const Icon(MdiIcons.musicNotePlus),
-    setKey: SettingBoxKey.disableAudioCDN,
-    defaultVal: false,
-    onChanged: (value) => VideoUtils.disableAudioCDN = value,
-  ),
+  // 仅在试用通道开启时才有意义：Web 通道拿不到 HDR，锁定也无从生效。
+  if (Pref.unlimitedVipQuality)
+    const SwitchModel(
+      title: '锁定 HDR Vivid 为全屏画质',
+      leading: Icon(Icons.hdr_on_outlined),
+      subtitle:
+          '开启后，全屏默认画质与全屏蜂窝网络画质都强制使用 HDR Vivid（最高档），'
+          '忽略下方两个画质设置',
+      setKey: SettingBoxKey.lockHdrVividQuality,
+      defaultVal: false,
+    ),
+  if (!Pref.unlimitedVipQuality)
+    SwitchModel(
+      title: '音频不跟随 CDN 设置',
+      subtitle: '直接采用备用 URL，可解决部分视频无声',
+      leading: const Icon(MdiIcons.musicNotePlus),
+      setKey: SettingBoxKey.disableAudioCDN,
+      defaultVal: false,
+      onChanged: (value) => VideoUtils.disableAudioCDN = value,
+    ),
+  if (Platform.isAndroid || Platform.isIOS)
+    NormalModel(
+      title: '半屏默认画质',
+      leading: const Icon(Icons.video_settings_outlined),
+      getSubtitle: () {
+        final qa = Pref.defaultVideoQaHalfScreen;
+        if (qa == null) {
+          return '跟随全屏画质'
+              '（WiFi ${VideoQuality.fromCode(Pref.defaultVideoQa).desc}'
+              '｜蜂窝 ${VideoQuality.fromCode(Pref.defaultVideoQaCellular).desc}）';
+        }
+        // 半屏实际画质 = min(半屏设置, 当前网络的全屏画质)，被夹持时提示实际值
+        final clamped = [
+          if (Pref.defaultVideoQa < qa)
+            'WiFi 下实际 ${VideoQuality.fromCode(Pref.defaultVideoQa).desc}',
+          if (Pref.defaultVideoQaCellular < qa)
+            '蜂窝下实际 ${VideoQuality.fromCode(Pref.defaultVideoQaCellular).desc}',
+        ];
+        final desc = VideoQuality.fromCode(qa).desc;
+        return clamped.isEmpty
+            ? '当前画质：$desc'
+            : '当前画质：$desc（${clamped.join('｜')}）';
+      },
+      onTap: _showVideoQaHalfScreenDialog,
+    ),
   NormalModel(
-    title: '默认画质',
+    title: '全屏默认画质',
     leading: const Icon(Icons.video_settings_outlined),
     getSubtitle: () =>
         '当前画质：${VideoQuality.fromCode(Pref.defaultVideoQa).desc}',
     onTap: _showVideoQaDialog,
   ),
   NormalModel(
-    title: '蜂窝网络画质',
+    title: '全屏蜂窝网络画质',
     leading: const Icon(Icons.video_settings_outlined),
     getSubtitle: () =>
         '当前画质：${VideoQuality.fromCode(Pref.defaultVideoQaCellular).desc}',
@@ -143,6 +198,18 @@ List<SettingsModel> get videoSettings => [
       getSubtitle: () => '当前：${Pref.audioOutput}',
       onTap: _showAudioOutputDialog,
     ),
+  SwitchModel(
+    title: '允许与其他应用同时播放',
+    subtitle:
+        '开启后支持与其他应用的音频同时播放。'
+        '${Platform.isIOS ? '\n开启后锁屏/通知栏/控制中心/车载不会显示正在播放的歌曲且不支持线控和Siri切歌（测试功能）' : ''}',
+    leading: const Icon(Icons.compare_arrows_outlined),
+    setKey: SettingBoxKey.mixWithOthers,
+    defaultVal: false,
+    onChanged: (value) {
+      audioSessionHandler?.reconfigure();
+    },
+  ),
   NormalModel(
     title: '缓冲大小',
     leading: const Icon(Icons.storage_outlined),
@@ -192,13 +259,12 @@ List<SettingsModel> get videoSettings => [
 ];
 
 Future<void> _showCDNDialog(BuildContext context, VoidCallback setState) async {
-  final res = await showDialog<CDNService>(
+  final res = await showDialog<CdnSelectResult>(
     context: context,
     builder: (context) => const CdnSelectDialog(),
   );
   if (res != null) {
-    VideoUtils.cdnService = res;
-    await GStorage.setting.put(SettingBoxKey.CDNService, res.name);
+    await applyCdnSelectResult(res);
     setState();
   }
 }
@@ -212,10 +278,30 @@ Future<void> _showLiveCDNDialog(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('输入CDN host'),
-      content: TextFormField(
-        initialValue: host,
-        autofocus: true,
-        onChanged: (value) => host = value,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            initialValue: host,
+            autofocus: true,
+            onChanged: (value) => host = value,
+          ),
+          const SizedBox(height: 4),
+          TextButton.icon(
+            icon: const Icon(Icons.travel_explore_outlined, size: 18),
+            label: const Text('从节点列表选择'),
+            onPressed: () async {
+              final node = await showDialog<String>(
+                context: context,
+                builder: (context) => const CdnNodeDialog(isLive: true),
+              );
+              if (node != null && context.mounted) {
+                Navigator.pop(context, node);
+              }
+            },
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -254,13 +340,35 @@ Future<void> _showVideoQaDialog(
   final res = await showDialog<int>(
     context: context,
     builder: (context) => SelectDialog<int>(
-      title: '默认画质',
+      title: '全屏默认画质',
       value: Pref.defaultVideoQa,
       values: VideoQuality.values.map((e) => (e.code, e.desc)).toList(),
     ),
   );
   if (res != null) {
     await GStorage.setting.put(SettingBoxKey.defaultVideoQa, res);
+    setState();
+  }
+}
+
+Future<void> _showVideoQaHalfScreenDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final currentQa = Pref.defaultVideoQaHalfScreen;
+  final res = await showDialog<int>(
+    context: context,
+    builder: (context) => SelectDialog<int>(
+      title: '半屏默认画质',
+      value: currentQa ?? -1,
+      values: [
+        (-1, '跟随全屏画质'),
+        ...VideoQuality.values.map((e) => (e.code, e.desc)),
+      ],
+    ),
+  );
+  if (res != null) {
+    await GStorage.setting.put(SettingBoxKey.defaultVideoQaHalfScreen, res);
     setState();
   }
 }
@@ -272,7 +380,7 @@ Future<void> _showVideoCellularQaDialog(
   final res = await showDialog<int>(
     context: context,
     builder: (context) => SelectDialog<int>(
-      title: '蜂窝网络画质',
+      title: '全屏蜂窝网络画质',
       value: Pref.defaultVideoQaCellular,
       values: VideoQuality.values.map((e) => (e.code, e.desc)).toList(),
     ),

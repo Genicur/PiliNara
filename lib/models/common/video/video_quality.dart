@@ -49,6 +49,37 @@ final class VideoQuality extends BaseQuality {
 
   static VideoQuality? safeFromCode(int code) => _codeMap[code];
 
+  /// 该画质档位是否需要大会员（非会员走 Web 通道会被封顶/拒绝）。
+  ///
+  /// 优先使用服务端下发的门控标记 `support_formats[].limit_watch_reason == 1`
+  /// （APP 通道对应 `StreamInfo.need_vip`），这是最准确的依据；
+  /// 拿不到标记时回退到档位 code 的静态判定。
+  ///
+  /// 用途：「无限试用会员画质」开关打开时，**只有**这些档位才走 APP gRPC 通道，
+  /// 其余档位走上游原有的 Web 通道（用户要求：仅 VIP 画质使用试用方法）。
+  static bool isVipQuality(int code, [List<FormatItem>? formats]) {
+    if (formats != null && formats.isNotEmpty) {
+      for (final f in formats) {
+        if (f.quality == code) return f.isVipLocked;
+      }
+    }
+    return _isVipQualityByCode(code);
+  }
+
+  /// 无服务端标记时的静态兜底判定。
+  ///
+  /// 显式列举而不用 code 大小比较，因为「智能修复」(100) 的 code 小于
+  /// 1080P+ (112) 但同样属于需要会员的特殊档位。
+  static bool _isVipQualityByCode(int code) =>
+      code == hdrVivid.code ||      // 129 HDR Vivid
+      code == super8k.code ||       // 127 8K
+      code == dolbyVision.code ||   // 126 杜比视界
+      code == hdr.code ||           // 125 HDR 真彩
+      code == super4K.code ||       // 120 4K
+      code == high108060.code ||    // 116 1080P 60帧
+      code == high1080plus.code ||  // 112 1080P 高码率
+      code == superResolution.code; // 100 智能修复
+
   factory VideoQuality.fromFormat(int code, List<FormatItem>? formats) {
     if (formats != null && formats.isNotEmpty) {
       for (final format in formats) {

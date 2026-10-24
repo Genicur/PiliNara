@@ -107,20 +107,24 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    return SelectionTapRegionSurface(
-      /// apply `lib/scripts/scrollable.patch`
-      isScrolling: () => _scrollable?.shouldIgnorePointer ?? false,
-      child: SimpleScaffold(
-        appBar: _buildAppBar(),
-        body: Padding(
-          padding: EdgeInsets.only(left: padding.left, right: padding.right),
-          child: _buildBody(),
-        ),
-        fab: SlideTransition(
-          position: fabAnimation,
-          child: _buildBottom(),
-        ),
-      ),
+    return Obx(
+      () {
+        controller.detailVersion.value;
+        return SelectionTapRegionSurface(
+          isScrolling: () => _scrollable?.shouldIgnorePointer ?? false,
+          child: SimpleScaffold(
+            appBar: _buildAppBar(),
+            body: Padding(
+              padding: EdgeInsets.only(left: padding.left, right: padding.right),
+              child: _buildBody(),
+            ),
+            fab: SlideTransition(
+              position: fabAnimation,
+              child: _buildBottom(),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -250,7 +254,7 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
             if (res case Success(:final response)) {
               if (mounted) {
                 controller.dynItem = response;
-                setState(() {});
+                controller.detailVersion.value++;
               }
             }
           },

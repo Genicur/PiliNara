@@ -1,19 +1,24 @@
 import 'dart:convert';
 
 import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pb.dart' show PlayViewReply;
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pbenum.dart' show CodeType;
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show ReplyInfo;
+import 'package:PiliPlus/grpc/playurl.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/pgc_lcf.dart';
+import 'package:PiliPlus/models/video/play/playview_convert.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_rank/pgc_rank_item_model.dart';
 import 'package:PiliPlus/models_new/popular/popular_precious/data.dart';
@@ -38,6 +43,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/utils/parse_int.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -45,7 +51,10 @@ import 'package:protobuf/protobuf.dart';
 
 /// view层根据 status 判断渲染逻辑
 abstract final class VideoHttp {
-  static RegExp zoneRegExp = RegExp(Pref.banWordForZone, caseSensitive: false);
+  static RegExp zoneRegExp = RegExp(
+    Pref.parseBanWordToRegex(Pref.banWordForZone),
+    caseSensitive: false,
+  );
   static bool enableFilter = zoneRegExp.pattern.isNotEmpty;
 
   // 首页推荐视频
@@ -84,6 +93,7 @@ abstract final class VideoHttp {
   static bool _filterWebRcmd(dynamic i) {
     if (i['goto'] != 'av') return true;
     if (i['owner'] != null &&
+        !RecommendFilter.isWhitelisted(safeToInt(i['owner']['mid'])) &&
         GlobalData().blackMids.contains(i['owner']['mid'])) {
       return true;
     }
@@ -93,8 +103,15 @@ abstract final class VideoHttp {
   static bool _filterAppRcmd(dynamic i) {
     if (i['card_goto'] == 'ad_av' ||
         i['card_goto'] == 'ad_web_s' ||
-        i['ad_info'] != null ||
-        i['can_play'] != 1) {
+        i['ad_info'] != null) {
+      return true;
+    }
+    final isWhitelisted = RecommendFilter.isWhitelisted(
+      safeToInt(i['args']?['up_id']),
+    );
+    if (isWhitelisted) return false;
+    // 「屏蔽无法播放的推荐」是本 fork 的开关，上游无条件过滤
+    if (Pref.removeBlockedRcmd && i['can_play'] != 1) {
       return true;
     }
     if (i['args'] != null &&
@@ -161,10 +178,10 @@ abstract final class VideoHttp {
         },
       ),
     );
+
     if (res.data['code'] == 0) {
       final list = <RcmdVideoItemAppModel>[];
       for (final i in res.data['data']['items']) {
-        // 屏蔽推广和拉黑用户
         if (_filterAppRcmd(i)) continue;
         final videoItem = RcmdVideoItemAppModel.fromJson(i);
         if (!RecommendFilter.filterWithExempt(videoItem)) {
@@ -177,18 +194,6 @@ abstract final class VideoHttp {
     }
   }
 
-  static bool _filterHotAndRank(dynamic i) {
-    if (GlobalData().blackMids.contains(i['owner']['mid'])) return false;
-    if (RecommendFilter.filterTitle(i['title'])) return false;
-    if (RecommendFilter.filterLikeRatio(i['stat']['like'], i['stat']['view'])) {
-      return false;
-    }
-    if (enableFilter && i['tname'] != null && zoneRegExp.hasMatch(i['tname'])) {
-      return false;
-    }
-    return true;
-  }
-
   // 最热视频
   static Future<LoadingState<List<HotVideoItemModel>>> hotVideoList({
     required int pn,
@@ -199,12 +204,31 @@ abstract final class VideoHttp {
       queryParameters: {'pn': pn, 'ps': ps},
     );
     if (res.data['code'] == 0) {
-      return Success(
-        (res.data['data']['list'] as List)
-            .where(_filterHotAndRank)
-            .map((e) => HotVideoItemModel.fromJson(e))
-            .toList(),
-      );
+      List<HotVideoItemModel> list = <HotVideoItemModel>[];
+      final applyFullFilter = RecommendFilter.applyFilterToHotVideos;
+      for (final i in res.data['data']['list']) {
+        final mid = safeToInt(i['owner']?['mid']);
+        final isWhitelisted = RecommendFilter.isWhitelisted(mid);
+        // 分区关键词过滤（始终生效，上游原始行为）
+        if (enableFilter &&
+            !isWhitelisted &&
+            i['tname'] != null &&
+            zoneRegExp.hasMatch(i['tname'])) {
+          continue;
+        }
+        if (applyFullFilter) {
+          // 开关开启：全局黑名单 + 完整过滤（时长、播放量、点赞率、标题关键词、推荐屏蔽用户）
+          if (!isWhitelisted &&
+              GlobalData().blackMids.contains(i['owner']['mid'])) {
+            continue;
+          }
+          final item = HotVideoItemModel.fromJson(i);
+          if (!RecommendFilter.filterAll(item)) list.add(item);
+        } else {
+          list.add(HotVideoItemModel.fromJson(i));
+        }
+      }
+      return Success(list);
     } else {
       return Error(res.data['message']);
     }
@@ -224,6 +248,22 @@ abstract final class VideoHttp {
     String? language,
     bool voiceBalance = false,
   }) async {
+    // 【取流通道选择】用户要求：仅 VIP 画质使用试用方法，非 VIP 画质走上游 Web。
+    //
+    // videoUrl() 一次返回全部档位，所以不能按单档请求分流。这里的策略是：
+    //   1. 先按上游原有逻辑走 Web 通道（保证非会员体验与本项目改前完全一致）；
+    //   2. 只有当「本次请求的 qn 是会员档位」且 Web 没给到该档位时，
+    //      才补走 APP gRPC PlayView，并把结果与 Web 结果合并。
+    //
+    // 这样：看 1080P 及以下 → 纯 Web，CDN 设置照常生效；
+    //       看 4K/HDR/8K/1080P+ → 才使用试用通道拿到会员画质。
+    // 开关关闭时一次 PlayView 都不发。
+    final appFallbackNeeded = Pref.unlimitedVipQuality &&
+        videoType == .ugc &&
+        epid == null &&
+        seasonId == null &&
+        VideoQuality.isVipQuality(qn);
+
     final Map<String, dynamic> params;
     Map<String, dynamic>? data;
 
@@ -319,6 +359,16 @@ abstract final class VideoHttp {
               }
             }
         }
+        // Web 已取到流。若本次请求的是会员档位而 Web 未下发该档位，
+        // 再用试用通道补齐（只补缺失档位，不覆盖 Web 结果）。
+        if (appFallbackNeeded &&
+            videoType == .ugc &&
+            !_hasQuality(data, qn)) {
+          final appRes = await _videoUrlByApp(avid: avid, bvid: bvid, cid: cid);
+          if (appRes case Success(:final response)) {
+            return Success(_mergePlayUrlModel(data, response));
+          }
+        }
         return Success(data);
       } else if (epid != null && videoType == .ugc) {
         return await videoUrl(
@@ -336,6 +386,145 @@ abstract final class VideoHttp {
     } catch (e, s) {
       return Error('$e\n\n$s');
     }
+  }
+
+  /// Web 结果里是否已包含指定画质档位的可播放流。
+  static bool _hasQuality(PlayUrlModel model, int qn) {
+    final videos = model.dash?.video;
+    if (videos == null || videos.isEmpty) return false;
+    // 请求 4K 时 Web 可能只给到 1080P；判定用「存在 >= qn 的档位」，
+    // 因为服务端下发的最高档可能高于请求档（如请求 112 但给了 120）。
+    return videos.any((v) => v.id >= qn);
+  }
+
+  /// 把试用通道（APP）拿到的档位合并进 Web 结果。
+  ///
+  /// 只补充 Web 缺失的档位，不覆盖 Web 已有条目：
+  /// 这样 1080P 及以下仍用 Web 直链（CDN 设置照常生效），
+  /// 仅高画质档位来自 APP 通道。
+  static PlayUrlModel _mergePlayUrlModel(
+    PlayUrlModel web,
+    PlayUrlModel app,
+  ) {
+    final webDash = web.dash;
+    final appDash = app.dash;
+    if (webDash == null) return app;
+    if (appDash == null) return web;
+
+    final webVideos = webDash.video ?? <VideoItem>[];
+    final webIds = webVideos.map((v) => v.id).toSet();
+
+    // 补充 Web 没有的档位，并按 id 降序（findAvailableVideoQuality
+    // 依赖 dash.video.first 作为「最高画质」）。
+    final merged = <VideoItem>[
+      ...webVideos,
+      ...(appDash.video ?? const <VideoItem>[]).where(
+        (v) => !webIds.contains(v.id),
+      ),
+    ]..sort((a, b) => b.id.compareTo(a.id));
+
+    // support_formats 同步补齐，避免 UI 里档位没有描述/编码信息
+    final webFormats = web.supportFormats ?? <FormatItem>[];
+    final webFormatIds = webFormats.map((f) => f.quality).toSet();
+    final mergedFormats = <FormatItem>[
+      ...webFormats,
+      ...(app.supportFormats ?? const <FormatItem>[]).where(
+        (f) => !webFormatIds.contains(f.quality),
+      ),
+    ];
+
+    final acceptQuality = <int>{
+      ...?web.acceptQuality,
+      ...?app.acceptQuality,
+    }.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    web.dash = Dash(
+      duration: webDash.duration ?? appDash.duration,
+      minBufferTime: webDash.minBufferTime ?? appDash.minBufferTime,
+      video: merged,
+      // 音频优先取 APP 通道的：APP 音频与 APP 视频同源同签名
+      // （platform=android / os=mcdn 一致），换 CDN 时行为可预期；
+      // 若混用 Web 音频（platform=pc / os=<cdn>bv），它会走 Web 的
+      // 替换路径，os 与 host 不匹配导致 403 → 表现为有画面无声音或整体黑屏。
+      audio: appDash.audio ?? webDash.audio,
+    );
+    web.supportFormats = mergedFormats;
+    web.acceptQuality = acceptQuality;
+    return web;
+  }
+
+  /// 走 APP 端 gRPC PlayView 取流（可拿到 4K / 1080P+）。
+  ///
+  /// 需要手机端 access_token：`authorization: identify_v1 <token>` 加上
+  /// `mobi_app=android & build>=6400000` 的指纹，服务端才会下发 4K 的 dashVideo。
+  /// 任一条件不满足时返回 null，由调用方回退 Web 通道。
+  static Future<Success<PlayUrlModel>?> _videoUrlByApp({
+    int? avid,
+    String? bvid,
+    required int cid,
+  }) async {
+    final accessKey = Accounts.video.accessKey;
+    if (accessKey == null || accessKey.isEmpty) return null;
+
+    final int? aid = avid ?? (bvid != null ? IdUtils.bv2av(bvid) : null);
+    if (aid == null || aid <= 0) return null;
+
+    try {
+      final preferCodecType = _preferCodecType;
+      final res = await PlayUrlGrpc.playView(
+        aid: aid,
+        cid: cid,
+        preferCodecType: preferCodecType,
+        accessKey: accessKey,
+      );
+      if (res case Success(:final response)) {
+        final replies = <PlayViewReply>[response];
+
+        // HDR Vivid(129) / HDR 真彩(125) / 杜比视界(126) / 8K(127) 只以 HEVC 或
+        // AV1 下发：首选 AVC 时这些档位只有 StreamInfo、没有 DashVideo。
+        // 检测到有档位缺流就再发一次 HEVC 请求，把两次结果合并，
+        // 让 UI 能列出并播放这些档位（对齐 BBDown 的 APP 通道能力）。
+        if (PlayViewConverter.missingDashQualities(response).isNotEmpty) {
+          final fallbackCodec = preferCodecType == CodeType.CODE265
+              ? CodeType.CODEAV1
+              : CodeType.CODE265;
+          final fallback = await PlayUrlGrpc.playView(
+            aid: aid,
+            cid: cid,
+            preferCodecType: fallbackCodec,
+            accessKey: accessKey,
+          );
+          if (fallback case Success(:final response)) {
+            replies.add(response);
+          }
+        }
+
+        final model = PlayViewConverter.toPlayUrlModelFromReplies(replies);
+        if (model != null && model.dash?.video?.isNotEmpty == true) {
+          // 服务端按 token 来源决定下发哪些档位：HD 端（`mobi_app=android_hd`
+          // 签发的 token）只会给到 480P/360P。这种结果不能接管，否则会把原本
+          // 能用 Web 通道看 1080P 的用户降级成 480P。低于 1080P 就回退 Web。
+          final topQuality = model.dash!.video!.first.quality.code;
+          if (topQuality >= VideoQuality.high1080.code) {
+            return Success(model);
+          }
+        }
+      }
+    } catch (_) {
+      // 静默回退 Web 通道
+    }
+    return null;
+  }
+
+  static CodeType get _preferCodecType {
+    final codecs = Pref.preferCodecs;
+    if (codecs.isEmpty) return CodeType.CODE265;
+    return switch (codecs.first) {
+      .AVC => CodeType.CODE264,
+      .AV1 => CodeType.CODEAV1,
+      _ => CodeType.CODE265,
+    };
   }
 
   static String _parseVideoErr(int? code, String? msg) {
@@ -411,22 +600,37 @@ abstract final class VideoHttp {
     }
   }
 
-  // 投币
+  // 投币（视频 avtype: 1，专栏 avtype: 2；专栏必须传 upid 即作者 mid）
   static Future<LoadingState<void>> coinVideo({
-    required String bvid,
+    required Object aid,
     required int multiply,
     int selectLike = 0,
+    int avtype = 1,
+    Object? upid,
+    String? referer,
   }) async {
+    final hasAccessKey = !Accounts.main.accessKey.isNullOrEmpty;
+    final options = Options(
+      contentType: Headers.formUrlEncodedContentType,
+      headers: hasAccessKey
+          ? null
+          : {
+              'origin': 'https://www.bilibili.com',
+              'referer': ?referer,
+              'user-agent': BrowserUa.pc,
+            },
+    );
     final res = await Request().post(
-      Api.coinVideo,
+      hasAccessKey ? Api.coinVideo : Api.coinVideoWeb,
       data: {
-        'aid': IdUtils.bv2av(bvid).toString(),
-        // 'bvid': bvid,
+        'aid': aid.toString(),
         'multiply': multiply.toString(),
         'select_like': selectLike.toString(),
-        // 'csrf': Accounts.main.csrf,
+        'avtype': avtype.toString(),
+        if (upid != null) 'upid': upid.toString(),
+        if (!hasAccessKey) 'csrf': Accounts.main.csrf,
       },
-      options: Options(contentType: Headers.formUrlEncodedContentType),
+      options: options,
     );
     if (res.data['code'] == 0) {
       return const Success(null);
@@ -497,13 +701,30 @@ abstract final class VideoHttp {
     required String bvid,
     required bool type,
   }) async {
+    final hasAccessKey = !Accounts.main.accessKey.isNullOrEmpty;
+    final options = Options(
+      contentType: Headers.formUrlEncodedContentType,
+      headers: hasAccessKey
+          ? null
+          : {
+              'origin': 'https://www.bilibili.com',
+              'referer': 'https://www.bilibili.com/video/$bvid',
+              'user-agent': BrowserUa.pc,
+            },
+    );
     final res = await Request().post(
-      Api.likeVideo,
-      data: {'aid': IdUtils.bv2av(bvid).toString(), 'like': type ? '0' : '1'},
-      options: Options(contentType: Headers.formUrlEncodedContentType),
+      hasAccessKey ? Api.likeVideo : Api.likeVideoWeb,
+      data: hasAccessKey
+          ? {'aid': IdUtils.bv2av(bvid).toString(), 'like': type ? '0' : '1'}
+          : {
+              'aid': IdUtils.bv2av(bvid).toString(),
+              'like': type ? '1' : '2',
+              'csrf': Accounts.main.csrf,
+            },
+      options: options,
     );
     if (res.data['code'] == 0) {
-      return Success(res.data['data']['toast']);
+      return Success(res.data['data']?['toast'] as String? ?? '点赞成功');
     } else {
       return Error(res.data['message']);
     }
@@ -918,6 +1139,58 @@ abstract final class VideoHttp {
     return null;
   }
 
+  static final _fillerWords = RegExp(
+    r'(嗯+|啊+|额+|呃+|那个|就是说|然后呢|对吧|是吧|对不对|你知道吗|反正就是|基本上|说实话)',
+  );
+
+  /// Fetch raw subtitle body JSON list from URL.
+  static Future<List?> fetchSubtitleBody(String subtitleUrl) async {
+    final res = await Request().get("https:$subtitleUrl");
+    return res.data?['body'] as List?;
+  }
+
+  /// Preprocess subtitle body JSON for AI analysis.
+  /// Returns (compressed text, isTooLong).
+  static ({String text, bool isTooLong}) preprocessSubtitlesForAi(
+    List body,
+  ) {
+    final sb = StringBuffer();
+    // Check if any subtitle exceeds 1 hour to determine format
+    final hasHour = body.isNotEmpty && (body.last['from'] as num) >= 3600;
+    for (final item in body) {
+      final from = item['from'] as num;
+      final content = (item['content'] as String?)?.trim() ?? '';
+      if (content.isEmpty) continue;
+      final h = from ~/ 3600;
+      final m = (from % 3600) ~/ 60;
+      final s = (from % 60).toInt();
+      final ts = hasHour
+          ? '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+          : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+      sb.writeln('[$ts] $content');
+    }
+
+    // Second level: remove filler words
+    var text = sb.toString().replaceAll(_fillerWords, '');
+    // Collapse multiple blank lines
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+
+    return (text: text, isTooLong: text.length > 20000);
+  }
+
+  static bool _canAddRank(Map i) {
+    final isWhitelisted = RecommendFilter.isWhitelisted(
+      safeToInt(i['owner']?['mid']),
+    );
+    if (isWhitelisted) {
+      return true;
+    }
+    // 分区关键词过滤（始终生效，上游原始行为）
+    return !(enableFilter &&
+        i['tname'] != null &&
+        zoneRegExp.hasMatch(i['tname']));
+  }
+
   // 视频排行
   static Future<LoadingState<List<HotVideoItemModel>>> getRankVideoList(
     int rid,
@@ -927,12 +1200,33 @@ abstract final class VideoHttp {
       queryParameters: await WbiSign.makSign({'rid': rid, 'type': 'all'}),
     );
     if (res.data['code'] == 0) {
-      return Success(
-        (res.data['data']['list'] as List)
-            .where(_filterHotAndRank)
-            .map((e) => HotVideoItemModel.fromJson(e))
-            .toList(),
-      );
+      List<HotVideoItemModel> list = <HotVideoItemModel>[];
+      final applyFullFilter = RecommendFilter.applyFilterToRankVideos;
+      for (final i in res.data['data']['list']) {
+        if (!_canAddRank(i)) continue;
+        final isWhitelisted = RecommendFilter.isWhitelisted(
+          safeToInt(i['owner']?['mid']),
+        );
+        if (applyFullFilter) {
+          // 开关开启：全局黑名单 + 完整过滤（时长、播放量、点赞率、标题关键词、推荐屏蔽用户）
+          if (!isWhitelisted && GlobalData().blackMids.contains(i['owner']['mid'])) {
+            continue;
+          }
+          final item = HotVideoItemModel.fromJson(i);
+          if (!RecommendFilter.filterAll(item)) list.add(item);
+        } else {
+          list.add(HotVideoItemModel.fromJson(i));
+          // final List? others = i['others'];
+          // if (others != null && others.isNotEmpty) {
+          //   for (final j in others) {
+          //     if (_canAddRank(j)) {
+          //       list.add(HotVideoItemModel.fromJson(j));
+          //     }
+          //   }
+          // }
+        }
+      }
+      return Success(list);
     } else {
       return Error(res.data['message']);
     }
@@ -951,9 +1245,17 @@ abstract final class VideoHttp {
       }),
     );
     if (res.data['code'] == 0) {
+      final items = res.data['result']?['list'] as List?;
+      if (items == null) return const Success(null);
+      final applyFilter = RecommendFilter.applyFilterToRankVideos;
       return Success(
-        (res.data['result']?['list'] as List?)
-            ?.map((e) => PgcRankItemModel.fromJson(e))
+        items
+            .where(
+              (e) =>
+                  !applyFilter ||
+                  !RecommendFilter.filterTitle(e['title'] ?? ''),
+            )
+            .map((e) => PgcRankItemModel.fromJson(e))
             .toList(),
       );
     } else {
@@ -974,9 +1276,17 @@ abstract final class VideoHttp {
       }),
     );
     if (res.data['code'] == 0) {
+      final items = res.data['data']?['list'] as List?;
+      if (items == null) return const Success(null);
+      final applyFilter = RecommendFilter.applyFilterToRankVideos;
       return Success(
-        (res.data['data']?['list'] as List?)
-            ?.map((e) => PgcRankItemModel.fromJson(e))
+        items
+            .where(
+              (e) =>
+                  !applyFilter ||
+                  !RecommendFilter.filterTitle(e['title'] ?? ''),
+            )
+            .map((e) => PgcRankItemModel.fromJson(e))
             .toList(),
       );
     } else {

@@ -37,6 +37,7 @@ class VideoReplyReplyPanel extends CommonSlidePage {
     required this.isVideoDetail,
     required this.replyType,
     this.isNested = false,
+    this.heroTag,
     this.upMid,
   });
   final int? id;
@@ -47,6 +48,7 @@ class VideoReplyReplyPanel extends CommonSlidePage {
   final bool isVideoDetail;
   final int replyType;
   final bool isNested;
+  final String? heroTag;
   final Int64? upMid;
 
   static Future<void>? toReply({
@@ -224,7 +226,9 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
             needDivider: false,
             onReply: (replyItem) => _controller.onReply(replyItem, index: -1),
             upMid: widget.upMid ?? _controller.upMid,
-            onCheckReply: _controller.onCheckReply,
+            getTag: () => widget.heroTag,
+            onCheckReply: (item) =>
+                _controller.onCheckReply(item, isManual: true),
           ),
         ),
         SliverToBoxAdapter(
@@ -337,6 +341,7 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
           replyType: widget.replyType,
           isVideoDetail: true,
           isNested: widget.isNested,
+          heroTag: widget.heroTag,
         ),
       ),
       jumpToDialogue: () {
@@ -344,7 +349,8 @@ class _VideoReplyReplyPanelState extends State<VideoReplyReplyPanel>
           SmartDialog.showToast('评论可能已被删除');
         }
       },
-      onCheckReply: _controller.onCheckReply,
+      onCheckReply: (item) => _controller.onCheckReply(item, isManual: true),
+      getTag: () => widget.heroTag,
     );
   }
 }

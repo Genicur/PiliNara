@@ -12,8 +12,11 @@ import 'package:PiliPlus/models/common/theme/theme_color_type.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/router/app_pages.dart';
 import 'package:PiliPlus/services/account_service.dart';
+import 'package:PiliPlus/services/download/download_folder_service.dart';
+import 'package:PiliPlus/services/download/download_library_service.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/logger.dart';
+import 'package:PiliPlus/services/route_stack_observer.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
@@ -33,6 +36,7 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:audio_service_mpris/audio_service_mpris.dart';
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
 import 'package:dynamic_color/dynamic_color.dart' show DynamicColorPlugin;
@@ -107,11 +111,13 @@ void main() async {
     _initDownPath(),
     _initTmpPath(),
     CacheManager.ensureInitialized(),
-    ?FontUtils.init(),
+    FontUtils.init(),
   ]);
   Get
     ..lazyPut(AccountService.new)
-    ..lazyPut(DownloadService.new);
+    ..lazyPut(DownloadService.new)
+    ..put(DownloadFolderService())
+    ..put(DownloadLibraryService());
   HttpOverrides.global = _CustomHttpOverrides();
 
   if (PlatformUtils.isMobile) {
@@ -129,7 +135,20 @@ void main() async {
         ),
       );
     }
-  } else if (Platform.isMacOS || Platform.isLinux) {
+    await setupServiceLocator();
+  } else if (Platform.isMacOS) {
+    await setupServiceLocator();
+  } else if (Platform.isLinux) {
+    // fork 独有：Linux MPRIS 媒体控制（上游把 macOS/Linux 合并成一条，
+    // 但 fork 的 MPRIS 初始化必须保留，故拆回独立分支）
+    AudioServiceMpris.init(
+      identity: Constants.appName,
+      canControl: true,
+      canPlay: true,
+      canPause: true,
+      canGoNext: true,
+      canGoPrevious: true,
+    );
     await setupServiceLocator();
   }
 
@@ -139,6 +158,7 @@ void main() async {
 
   SmartDialog.config.toast = SmartConfigToast(displayType: .onlyRefresh);
 
+  // ESC 全平台注册：平板/手机外接键盘也可用（PageRoute 默认不消费 escape）
   FocusManager.instance.addEarlyKeyEventHandler(_onKeyEvent);
 
   if (PlatformUtils.isMobile) {
@@ -309,6 +329,7 @@ class MyApp extends StatelessWidget {
       ),
       navigatorObservers: [
         routeObserver,
+        routeStackObserver,
         FlutterSmartDialog.observer,
       ],
       scrollBehavior: PlatformUtils.isDesktop
@@ -317,10 +338,35 @@ class MyApp extends StatelessWidget {
     );
   }
 
+  // 修复后的 Builder 方法
   static Widget _builder(BuildContext context, Widget? child) {
     final uiScale = Pref.uiScale;
-    final mediaQuery = MediaQuery.of(context);
+    var mediaQuery = MediaQuery.of(context);
     final textScaler = TextScaler.linear(Pref.defaultTextScale);
+
+    // 修复 HyperOS 小窗/自由窗口模式下 MediaQuery 异常上报接近整个窗口
+    // 高度的安全区 padding，导致内容被顶出屏幕只剩底栏的问题。
+    // 参考: https://github.com/flutter/flutter/issues/161086
+    if (Platform.isAndroid) {
+      final sizeHeight = mediaQuery.size.height;
+      final viewPadding = mediaQuery.viewPadding;
+      final topAbnormal = viewPadding.top > sizeHeight * 0.4;
+      final bottomAbnormal = viewPadding.bottom > sizeHeight * 0.4;
+      if (topAbnormal || bottomAbnormal) {
+        mediaQuery = mediaQuery.copyWith(
+          padding: mediaQuery.padding.copyWith(
+            top: topAbnormal ? 0 : mediaQuery.padding.top,
+            bottom: bottomAbnormal ? 0 : mediaQuery.padding.bottom,
+          ),
+          viewPadding: viewPadding.copyWith(
+            top: topAbnormal ? 0 : viewPadding.top,
+            bottom: bottomAbnormal ? 0 : viewPadding.bottom,
+          ),
+        );
+      }
+    }
+    // -----------------------------------------------------------------------
+
     if (uiScale != 1.0) {
       child = MediaQuery(
         data: mediaQuery.copyWith(
@@ -337,19 +383,16 @@ class MyApp extends StatelessWidget {
       child = MediaQuery(
         data: mediaQuery.copyWith(
           textScaler: textScaler,
-          padding: tmpPadding,
-          viewPadding: tmpPadding,
+          padding: tmpPadding ?? mediaQuery.padding,
+          viewPadding: tmpPadding ?? mediaQuery.viewPadding,
         ),
         child: child!,
       );
     }
-    if (PlatformUtils.isDesktop) {
-      return BackDetector(
-        onBack: _onBack,
-        child: child,
-      );
-    }
-    return child;
+    return BackDetector(
+      onBack: _onBack,
+      child: child,
+    );
   }
 
   /// from [DynamicColorBuilderState.initPlatformState]

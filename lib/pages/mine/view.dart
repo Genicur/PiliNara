@@ -87,9 +87,11 @@ class _MediaPageState extends CommonPageState<MinePage>
           child: Material(
             type: .transparency,
             child: refreshIndicator(
+              key: controller.refreshKey,
               onRefresh: controller.onRefresh,
               child: onBuild(
                 ListView(
+                  controller: controller.scrollController,
                   padding: const .only(bottom: 150),
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [

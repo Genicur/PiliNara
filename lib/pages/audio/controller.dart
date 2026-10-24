@@ -23,6 +23,8 @@ import 'package:PiliPlus/pages/common/common_intro_controller.dart'
     show FavMixin;
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/pages/main_reply/view.dart';
+import 'package:PiliPlus/pages/setting/models/play_settings.dart'
+    show kMaxVolume;
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/triple_mixin.dart';
@@ -47,6 +49,7 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -66,6 +69,7 @@ class AudioController extends GetxController
   late int itemType;
   Int64? extraId;
   late final PlaylistSource from;
+  late final String heroTag;
   @override
   late final bool isUgc = itemType == 1;
 
@@ -164,6 +168,7 @@ class AudioController extends GetxController
     subId = (args['subId'] as List<int>?)?.map(Int64.new).toList() ?? [oid];
     itemType = args['itemType'];
     from = args['from'];
+    heroTag = args['heroTag'];
     _start = args['start'];
     final int? extraId = args['extraId'];
     if (extraId != null) {
@@ -226,6 +231,7 @@ class AudioController extends GetxController
   }
 
   Future<void>? onSeek(Duration duration) {
+    if (kDebugMode) debugPrint('AudioController: onSeek to $duration');
     _updatePlaybackState(position: duration);
     return player?.seek(duration);
   }
@@ -238,7 +244,7 @@ class AudioController extends GetxController
     videoPlayerServiceHandler?.onVideoDetailChange(
       item,
       (subId.firstOrNull ?? oid).toInt(),
-      hashCode.toString(),
+      heroTag,
     );
   }
 
@@ -394,7 +400,8 @@ class AudioController extends GetxController
           if (Platform.isAndroid) 'ao': Pref.audioOutput,
           'volume': PlatformUtils.isDesktop
               ? (desktopVolume.value * 100).toString()
-              : Pref.playerVolume.toString(),
+              : (Pref.enableAppVolume ? 100.0 : Pref.playerVolume).toString(),
+          'volume-max': kMaxVolume.toString(),
           ...Pref.initBuffer(),
         },
       ),
@@ -592,6 +599,7 @@ class AudioController extends GetxController
     MainReplyPage.toMainReplyPage(
       oid: oid.toInt(),
       replyType: isUgc ? 1 : 14,
+      heroTag: heroTag,
     );
   }
 
@@ -619,23 +627,22 @@ class AudioController extends GetxController
               PiliAndroidHelper.openUrl(audioUrl);
             },
           ),
-          if (PlatformUtils.isMobile)
-            DialogOption(
-              child: const Text('分享视频', style: TextStyle(fontSize: 14)),
-              onPressed: () {
-                Get.back();
-                if (audioItem.value case DetailItem(
-                  :final arc,
-                  :final owner,
-                )) {
-                  ShareUtils.shareText(
-                    '${arc.title} '
-                    'UP主: ${owner.name}'
-                    ' - $audioUrl',
-                  );
-                }
-              },
-            ),
+          DialogOption(
+            child: const Text('分享视频', style: TextStyle(fontSize: 14)),
+            onPressed: () {
+              Get.back();
+              if (audioItem.value case DetailItem(
+                :final arc,
+                :final owner,
+              )) {
+                ShareUtils.shareText(
+                  '${arc.title} '
+                  'UP主: ${owner.name}'
+                  ' - $audioUrl',
+                );
+              }
+            },
+          ),
           if (isLogin)
             DialogOption(
               child: const Text('分享至动态', style: TextStyle(fontSize: 14)),
@@ -829,7 +836,7 @@ class AudioController extends GetxController
       ..onSeek = null
       ..onSkipToNext = null
       ..onSkipToPrevious = null
-      ..onVideoDetailDispose(hashCode.toString())
+      ..onVideoDetailDispose(heroTag)
       ..clearIfNeeded();
     _subscriptions?.forEach((e) => e.cancel());
     _subscriptions?.clear();

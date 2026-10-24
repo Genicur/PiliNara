@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/pages/live_room/controller.dart';
 import 'package:PiliPlus/pages/video/widgets/header_mixin.dart';
@@ -128,10 +129,13 @@ class _BottomControlState extends State<BottomControl> with HeaderMixin {
               onTap: () => showSetDanmaku(isLive: true),
             ),
             Obx(
-              () => PopupMenuButton<VideoFitType>(
+              () => StaticPopupMenuButton<VideoFitType>(
                 tooltip: '画面比例',
                 initialValue: plPlayerController.videoFit.value,
                 color: Colors.black.withValues(alpha: 0.8),
+                menuPadding: EdgeInsets.zero,
+                menuItemOuterPadding: EdgeInsets.zero,
+                menuItemStateLayerColor: Colors.white,
                 itemBuilder: (context) {
                   return VideoFitType.values
                       .map(
@@ -167,12 +171,15 @@ class _BottomControlState extends State<BottomControl> with HeaderMixin {
                 if (quality == null) {
                   return const SizedBox.shrink();
                 }
-                return PopupMenuButton<LiveQuality>(
+                return StaticPopupMenuButton<LiveQuality>(
                   tooltip: '画质',
                   padding: .zero,
                   initialValue: quality,
                   onSelected: liveRoomCtr.changeQn,
                   color: Colors.black.withValues(alpha: 0.8),
+                  menuPadding: EdgeInsets.zero,
+                  menuItemOuterPadding: EdgeInsets.zero,
+                  menuItemStateLayerColor: Colors.white,
                   itemBuilder: (context) {
                     return liveRoomCtr.acceptQnList
                         .map(

@@ -54,6 +54,9 @@ mixin SearchVideoPanelMixin<S extends SearchVideoPanel>
   SearchVideoController get controller;
 
   @override
+  String? getTitle(SearchVideoItemModel item) => item.title;
+
+  @override
   Widget buildHeader() {
     return SliverFloatingHeaderWidget(
       backgroundColor: colorScheme.surface,
@@ -96,11 +99,14 @@ mixin SearchVideoPanelMixin<S extends SearchVideoPanel>
                   padding: WidgetStatePropertyAll(EdgeInsets.zero),
                 ),
                 onPressed: () => controller.onShowFilterDialog(context),
-                icon: Icon(
-                  Icons.filter_list_outlined,
+                icon: Obx(() => Icon(
+                  controller.includeKeywords.isNotEmpty ||
+                          controller.excludeKeywords.isNotEmpty
+                      ? Icons.filter_list
+                      : Icons.filter_list_off,
                   size: 18,
                   color: colorScheme.primary,
-                ),
+                )),
               ),
             ),
           ],
@@ -117,10 +123,11 @@ mixin SearchVideoPanelMixin<S extends SearchVideoPanel>
         if (index == list.length - 1) {
           controller.onLoadMore();
         }
+        final item = list[index];
         return VideoCardH(
-          videoItem: list[index],
+          videoItem: item,
           onRemove: () => controller.loadingState
-            ..value.data!.removeAt(index)
+            ..value.dataOrNull?.remove(item)
             ..refresh(),
         );
       },

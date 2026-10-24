@@ -149,4 +149,51 @@ pili_release.json
 
 dist
 
+test.dart
+
+docs/*
+!docs/danmaku_font_scaling.md
+!docs/inapp_pip_implementation.md
+!docs/high-quality-stream-handoff.md
+!docs/high-quality-stream-handoff-code.md
+!docs/high-quality-stream-handoff.patch
+!docs/cdn-setting-vs-unlimited-vip-quality.md
+test*.dart
+
+AGENTS.md
+
+CLAUDE.md
+
+CONTEXT.md
+
+.claude
 test*
+# 放行已纳入版本库的单元测试：test* 会连 test/ 目录本身一起忽略，
+# 需先否定目录（否则 git 不会进入该目录），再逐级放行子目录与文件。
+!/test/
+/test/*
+!/test/utils/
+/test/utils/*
+!/test/utils/accounts/
+/test/utils/accounts/*
+!/test/pages/
+/test/pages/*
+!/test/pages/search_panel/
+/test/pages/search_panel/*
+!/test/utils/accounts/deleted_account_test.dart
+!/test/utils/audio_quality_select_test.dart
+!/test/utils/live_buffer_test.dart
+!/test/utils/video_quality_select_test.dart
+!/test/utils/cdn_speed_sample_test.dart
+!/test/utils/app_cdn_replace_test.dart
+!/test/utils/cdn_app_sample_test.dart
+!/test/utils/vip_quality_gate_test.dart
+!/test/utils/hdr_vivid_lock_test.dart
+!/test/utils/pcdn_os_mcdn_test.dart
+!/test/utils/edl_media_header_test.dart
+!/test/utils/cdn_port_reset_test.dart
+!/test/danmaku_mask_geometry_test.dart
+!/test/pages/search_panel/keyword_filter_test.dart
+/pubspec_overrides.yaml
+.mindfs
+.agents 

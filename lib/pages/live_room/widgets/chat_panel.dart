@@ -144,6 +144,7 @@ class LiveRoomChatPanel extends StatelessWidget {
                 return SuperChatCard(
                   item: item,
                   persistentSC: true,
+                  superChatTimeType: liveRoomController.superChatTimeType,
                   onReport: () => liveRoomController.reportSC(item),
                 );
               }
@@ -248,13 +249,19 @@ class LiveRoomChatPanel extends StatelessWidget {
   InlineSpan _buildMsg(double devicePixelRatio, DanmakuMsg obj) {
     final uemote = obj.uemote;
     if (uemote != null) {
-      // "room_{{room_id}}_{{int}}" , "upower_[{{emote}}]" , "official_{{int}}"
-      final double width, height;
-      if (uemote.isOfficial) {
+      // "room_{{room_id}}_{{int}}", "official_{{int}}" or "upower_[{{emote}}]"
+      const upowerDefaultPx = 162.0;
+      late final double width;
+      late final double height;
+      if (uemote.isUpower) {
+        width = upowerDefaultPx / devicePixelRatio;
+        height = upowerDefaultPx / devicePixelRatio;
+      } else if (uemote.isOfficial) {
+        width = uemote.width / devicePixelRatio * 1.25;
+        height = uemote.height / devicePixelRatio * 1.25;
+      } else {
         width = uemote.width / devicePixelRatio;
         height = uemote.height / devicePixelRatio;
-      } else {
-        width = height = 162.0 / devicePixelRatio;
       }
       return WidgetSpan(
         child: NetworkImgLayer(
@@ -333,29 +340,33 @@ class LiveRoomChatPanel extends StatelessWidget {
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(dx, dy, dx, 0),
+      clipBehavior: Clip.antiAlias,
       items: <PopupMenuEntry<Never>>[
         CustomPopupMenuItem(
           height: 38,
           child: Text(item.name, style: const TextStyle(fontSize: 13)),
         ),
         const CustomPopupMenuDivider(height: 1),
-        PopupMenuItem(
+        CustomPopupMenuItem(
           height: 38,
           onTap: () => Utils.copyText(Utils.jsonEncoder.convert(item.toJson())),
           child: const Text('复制弹幕信息', style: TextStyle(fontSize: 13)),
         ),
-        PopupMenuItem(
+        CustomPopupMenuItem(
           height: 38,
           onTap: () => Get.toNamed('/member?mid=${item.extra.mid}'),
           child: const Text('去TA的个人空间', style: TextStyle(fontSize: 13)),
         ),
         if (liveRoomController.isLogin) ...[
-          PopupMenuItem(
+          CustomPopupMenuItem(
             height: 38,
             onTap: () => liveRoomController.onAtUser(item),
-            child: const Text('@TA', style: TextStyle(fontSize: 13)),
+            child: const Text(
+              '@TA',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
-          PopupMenuItem(
+          CustomPopupMenuItem(
             height: 38,
             onTap: () async {
               final res = await LiveHttp.liveShieldUser(
@@ -369,9 +380,12 @@ class LiveRoomChatPanel extends StatelessWidget {
                 res.toast();
               }
             },
-            child: const Text('屏蔽发送者', style: TextStyle(fontSize: 13)),
+            child: const Text(
+              '屏蔽发送者',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
-          PopupMenuItem(
+          CustomPopupMenuItem(
             height: 38,
             onTap: () => HeaderControl.reportLiveDanmaku(
               context,
@@ -379,7 +393,10 @@ class LiveRoomChatPanel extends StatelessWidget {
               msg: item.text,
               extra: item.extra,
             ),
-            child: const Text('举报选中弹幕', style: TextStyle(fontSize: 13)),
+            child: const Text(
+              '举报选中弹幕',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
         ],
       ],
@@ -392,3 +409,4 @@ class LiveRoomChatPanel extends StatelessWidget {
     });
   }
 }
+

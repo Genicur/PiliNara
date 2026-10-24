@@ -11,7 +11,7 @@ abstract final class Style {
   static const aspectRatio16x9 = 16 / 9;
   static const aspectRatio3x4 = 3 / 4;
   static const imgMaxRatio = 2.6;
-  static const bottomSheetRadius = BorderRadius.vertical(top: .circular(18));
+  static const bottomSheetRadius = BorderRadius.vertical(top: .circular(28));
   static const dialogFixedConstraints = BoxConstraints.tightFor(width: 420);
   static const topBarHeight = 52.0;
   static const buttonStyle = ButtonStyle(

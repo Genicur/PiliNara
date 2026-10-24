@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
 import 'package:PiliPlus/common/widgets/extra_hittest_stack.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/gesture/horizontal_drag_gesture_recognizer.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -29,12 +30,16 @@ import 'package:PiliPlus/pages/live_room/widgets/chat_panel.dart';
 import 'package:PiliPlus/pages/live_room/widgets/header_control.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
+import 'package:PiliPlus/services/live_pip_overlay_service.dart';
+import 'package:PiliPlus/services/logger.dart';
+import 'package:PiliPlus/services/pip_overlay_service.dart';
+import 'package:PiliPlus/services/pip_transition_coordinator.dart';
 import 'package:PiliPlus/services/service_locator.dart';
-import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
@@ -72,27 +77,181 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   PlayOwner get _playOwner => (tag: heroTag, type: null);
   final String heroTag = Utils.generateRandomString(6);
   late final LiveRoomController _liveRoomController;
-  late final PlPlayerController plPlayerController;
+  late PlPlayerController plPlayerController;
   bool get isFullScreen => plPlayerController.isFullScreen.value;
+
+  int _liveResumeEpoch = 0;
+  int _liveResumeHandledEpoch = -1;
+  bool _liveRoomAway = false;
+  Future<void>? _liveResumeFuture;
+
+  // 标志位：是否正在进入 PiP 模式
+  bool _isEnteringPipMode = false;
+
+  // 标志位：三点菜单「应用内画中画」发起的 pop，一次性；由 _onPopInvokedWithResult 消费，
+  // 让本次收起绕过设置开关
+  bool _manualPipRequested = false;
 
   late final GlobalKey pageKey = GlobalKey();
   late final GlobalKey chatKey = GlobalKey();
   late final GlobalKey scKey = GlobalKey();
   late final GlobalKey playerKey = GlobalKey();
 
+  // 归位动画进行中：页面播放器以透明占位先行布局（供量取目标矩形），
+  // 恢复握手完成后亮出，期间小窗是唯一可见端
+  bool _pipRestoreInFlight = false;
+  int _pipRestoreRectAttempts = 0;
+
+  bool _liveRoomUpdateScheduled = false;
+
+  void _performUpdate() {
+    if (!mounted || _liveRoomUpdateScheduled) {
+      return;
+    }
+
+    _liveRoomUpdateScheduled = true;
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) {
+        _liveRoomUpdateScheduled = false;
+        if (!mounted) {
+          return;
+        }
+        setState(() {});
+      })
+      ..ensureVisualUpdate();
+  }
+
+  void _setPipRestoreInFlight(bool value) {
+    if (_pipRestoreInFlight == value) {
+      return;
+    }
+
+    _pipRestoreInFlight = value;
+    _performUpdate();
+  }
+
+  // 页面根参照系：归位目标矩形以此量取，规避路由转场期间的整页偏移
+  final _pageRootKey = GlobalKey();
+
+  /// 量取页面播放器矩形（收起源矩形用全局坐标；归位目标以页面根为参照系）
+  Rect? _livePlayerRect({bool relativeToPage = false}) {
+    final renderObject = playerKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize ||
+        // 未加载完成时播放器区是零尺寸 SizedBox.shrink,视为未量到
+        renderObject.size.isEmpty) {
+      return null;
+    }
+    if (relativeToPage) {
+      final pageRenderObject = _pageRootKey.currentContext?.findRenderObject();
+      if (pageRenderObject is RenderBox && pageRenderObject.attached) {
+        return renderObject.localToGlobal(
+              Offset.zero,
+              ancestor: pageRenderObject,
+            ) &
+            renderObject.size;
+      }
+      return null;
+    }
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+  }
+
+  /// C1/C2 共用：页面就绪后量取归位目标矩形并上报协调器（最多重试 10 帧）
+  void _scheduleLivePipRestoreAttach() {
+    _pipRestoreRectAttempts = 0;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _attachLivePipRestore(),
+    );
+  }
+
+  void _attachLivePipRestore() {
+    if (!mounted || !_pipRestoreInFlight) return;
+    final targetRect = _livePlayerRect(relativeToPage: true);
+    if (targetRect == null && _pipRestoreRectAttempts++ < 10) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _attachLivePipRestore(),
+      );
+      return;
+    }
+    LivePipOverlayService.transition.attachRestorePage(
+      targetRect: targetRect,
+      onCompleted: () {
+        _setPipRestoreInFlight(false);
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     addObserverMobile(this);
+    final args = Get.arguments;
+
+    // 解析当前请求进入的房间号
+    int? currentEntryRoomId;
+    if (args is Map) {
+      currentEntryRoomId = (args['roomId'] as int?) ?? (args['id'] as int?);
+    } else if (args is int) {
+      currentEntryRoomId = args;
+    }
+
+    // 检测是否是从小窗返回（即：进入的房间正是当前小窗中的房间）
+    final bool isReturningFromPip =
+        currentEntryRoomId != null &&
+        LivePipOverlayService.isCurrentLiveRoom(currentEntryRoomId);
+
+    // 无论是否是同一个房间，既然进入了直播详情页，就关闭现有的小窗（不销毁播放器）
+    if (LivePipOverlayService.isInPipMode) {
+      // 本页随后会新建 controller 并自开弹幕流/通知条目，旧 controller 就此退休
+      LivePipOverlayService.cleanupSavedController();
+      if (isReturningFromPip &&
+          LivePipOverlayService.transition.phase == PipPhase.restoring) {
+        // 点击展开（归位动画中）：小窗仍在飞向本页，非销毁式关闭推迟到
+        // 握手完成由协调器触发 _finalizeRestore 执行；本页播放器先透明占位
+        _pipRestoreInFlight = true;
+        _scheduleLivePipRestoreAttach();
+      } else {
+        // 其他房间/无动画路径：维持旧的非销毁式关闭，让新页面接管播放器
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          LivePipOverlayService.stopLivePip(callOnClose: false);
+        });
+      }
+    }
+
+    // 如果有视频小窗也关闭
+    if (PipOverlayService.isInPipMode) {
+      PipOverlayService.stopPip(
+        callOnClose: false,
+        releaseSavedOwner: true,
+        // 小窗 owner 的视频页仍在栈内时只暂停不 dispose，避免破坏其计数
+        disposeSavedOwnerPlayer: VideoStackManager.getCount() == 0,
+      );
+    }
+
     _liveRoomController = Get.put(
-      LiveRoomController(heroTag),
+      LiveRoomController(heroTag, fromPip: isReturningFromPip),
       tag: heroTag,
     );
     plPlayerController = _liveRoomController.plPlayerController
       ..addStatusLister(playerListener);
     _setPlayCallBack();
-    if (plPlayerController.removeSafeArea) {
-      hideSystemBar();
+    _liveRoomController.onRequestInAppPip = _enterLivePipManually;
+
+    if (isReturningFromPip) {
+      _liveRoomController.isInPipMode.value = false;
+      plPlayerController
+        ..isLive = true
+        ..danmakuController = _liveRoomController.danmakuController;
+      _liveRoomController
+        ..danmakuController?.resume()
+        ..startLiveTimer()
+        ..startLiveMsg();
+    } else {
+      plPlayerController.isLive = true;
+      if (plPlayerController.removeSafeArea) {
+        hideSystemBar();
+      }
     }
   }
 
@@ -122,25 +281,37 @@ class _LiveRoomPageState extends State<LiveRoomPage>
     plPlayerController.screenRatio = maxHeight / maxWidth;
   }
 
-  void _onPushPopupRoute() {
-    _liveRoomController.isPlaying = plPlayerController.playerStatus.isPlaying;
+  int _onPushPopupRoute() {
+    return _beginLiveRoomLeave();
   }
 
-  void _onPopPopupRoute() {
-    if (!mounted) return;
-    if (PlPlayerController.playOwner != _playOwner) {
-      _onPopNext();
-    }
+  Future<void> _onPopPopupRoute(int resumeEpoch) {
+    return _requestLiveRoomResume(resumeEpoch);
   }
 
   @override
   void didPopNext() {
-    addObserverMobile(this);
-    _onPopNext();
+    _requestLiveRoomResume(_liveResumeEpoch);
     super.didPopNext();
   }
 
   Future<void> _onPopNext() async {
+    final resumeEpoch = _liveResumeEpoch;
+    final (:shouldPlay, :needsRecovery) = _prepareLiveRoomResume();
+
+    if (needsRecovery && !_liveRoomController.isUnstartedRoom.value) {
+      await _liveRoomController.playerInit(autoplay: shouldPlay);
+      if (!_canResumeLiveRoom(resumeEpoch)) return;
+      plPlayerController = _liveRoomController.plPlayerController;
+      _liveRoomController.isLoaded.refresh();
+    }
+
+    if (!_canResumeLiveRoom(resumeEpoch)) return;
+    if (!_liveRoomController.isUnstartedRoom.value &&
+        !_hasLiveRoomSource(plPlayerController)) {
+      throw StateError('直播播放源恢复失败');
+    }
+
     if (!plPlayerController.isLive) {
       plPlayerController.isLive = true;
       _liveRoomController.isLoaded.refresh();
@@ -149,37 +320,50 @@ class _LiveRoomPageState extends State<LiveRoomPage>
         _liveRoomController.danmakuController;
     _setPlayCallBack();
     _liveRoomController.startLiveTimer();
-    if (plPlayerController.playerStatus.isPlaying &&
-        plPlayerController.cid == null) {
+
+    if (_liveRoomController.isUnstartedRoom.value) {
       _liveRoomController
         ..danmakuController?.resume()
         ..startLiveMsg();
     } else {
-      final shouldPlay = _liveRoomController.isPlaying ?? false;
-      if (shouldPlay) {
-        _liveRoomController
-          ..danmakuController?.resume()
-          ..startLiveMsg();
-      }
-      await _liveRoomController.playerInit(autoplay: shouldPlay);
+      await _restoreLiveRoomPlayback(shouldPlay, resumeEpoch);
     }
-    if (!mounted) return;
+
+    if (!_canResumeLiveRoom(resumeEpoch)) return;
     plPlayerController.addStatusLister(playerListener);
+    _performUpdate();
   }
 
   @override
   void didPushNext() {
+    _beginLiveRoomLeave();
     removeObserverMobile(this);
     plPlayerController.removeStatusLister(playerListener);
-    _liveRoomController
-      ..danmakuController?.clear()
-      ..cancelLiveTimer()
-      ..closeLiveMsg()
-      ..isPlaying = plPlayerController.playerStatus.isPlaying;
+    // 未开播时内容就是弹幕流本身，不能随播放状态关闭
+    if (_liveRoomController.isUnstartedRoom.value) {
+      super.didPushNext();
+      return;
+    }
+
+    if (plPlayerController.playerStatus.isPlaying &&
+        !isFullScreen &&
+        _shouldStartLivePip()) {
+      _startLivePipIfNeeded();
+    } else {
+      _liveRoomController
+        ..danmakuController?.clear()
+        ..cancelLiveTimer()
+        ..closeLiveMsg()
+        ..isPlaying = plPlayerController.playerStatus.isPlaying;
+    }
+
     super.didPushNext();
   }
 
   void playerListener(PlayerStatus status) {
+    if (_liveRoomController.isUnstartedRoom.value) {
+      return;
+    }
     if (status.isPlaying) {
       _liveRoomController
         ..danmakuController?.resume()
@@ -195,20 +379,37 @@ class _LiveRoomPageState extends State<LiveRoomPage>
 
   @override
   void dispose() {
+    final isInLivePip = LivePipOverlayService.isCurrentLiveRoom(
+      _liveRoomController.roomId,
+    );
+    if (!isInLivePip && !_isEnteringPipMode) {
+      videoPlayerServiceHandler?.onVideoDetailDispose(heroTag);
+    }
     removeObserverMobile(this);
-    videoPlayerServiceHandler?.onVideoDetailDispose(heroTag);
     if (Platform.isAndroid && !plPlayerController.setSystemBrightness) {
       ScreenBrightnessPlatform.instance.resetApplicationScreenBrightness();
     }
-    PlPlayerController.setPlayCallBack(null);
-    plPlayerController
-      ..removeStatusLister(playerListener)
-      ..dispose();
+    if (!isInLivePip && !_isEnteringPipMode) {
+      PlPlayerController.setPlayCallBack(null);
+    }
+    plPlayerController.removeStatusLister(playerListener);
+    if (_liveRoomController.onRequestInAppPip == _enterLivePipManually) {
+      _liveRoomController.onRequestInAppPip = null;
+    }
+    if (!isInLivePip && !_isEnteringPipMode) {
+      plPlayerController.dispose();
+    }
+
     for (final e in LiveContributionRankType.values) {
       Get.delete<ContributionRankController>(
         tag: '${_liveRoomController.roomId}${e.name}',
       );
     }
+
+    if (!isInLivePip && !_isEnteringPipMode) {
+      Get.delete<LiveRoomController>(tag: heroTag, force: true);
+    }
+
     super.dispose();
   }
 
@@ -238,7 +439,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   @override
   Widget build(BuildContext context) {
     Widget child;
-    if (Platform.isAndroid && AndroidHelper.isPipMode) {
+    if (plPlayerController.isPipMode) {
       child = videoPlayerPanel(
         isFullScreen,
         width: maxWidth,
@@ -257,9 +458,13 @@ class _LiveRoomPageState extends State<LiveRoomPage>
         child: child,
       );
     }
-    return Theme(
-      data: ThemeUtils.darkTheme,
-      child: child,
+    // 页面根参照系：归位目标矩形以此量取
+    return KeyedSubtree(
+      key: _pageRootKey,
+      child: Theme(
+        data: ThemeUtils.darkTheme,
+        child: child,
+      ),
     );
   }
 
@@ -281,11 +486,15 @@ class _LiveRoomPageState extends State<LiveRoomPage>
     Widget player = Obx(
       key: playerKey,
       () {
+        if (_liveRoomController.isUnstartedRoom.value) {
+          return _unstartedPanel(width);
+        }
         if (_liveRoomController.isLoaded.value && plPlayerController.isLive) {
           final roomInfoH5 = _liveRoomController.roomInfoH5.value;
           return PLVideoPlayer(
             maxWidth: width,
             maxHeight: height,
+            isPipMode: isPipMode,
             fill: fill,
             alignment: alignment,
             plPlayerController: plPlayerController,
@@ -407,11 +616,399 @@ class _LiveRoomPageState extends State<LiveRoomPage>
         ],
       );
     }
-    return popScope(
-      canPop: !isFullScreen && !plPlayerController.isDesktopPip,
-      onPopInvokedWithResult: plPlayerController.onPopInvokedWithResult,
+    final Widget result = popScope(
+      canPop: _canPopPage,
+      onPopInvokedWithResult: _onPopInvokedWithResult,
       child: player,
     );
+    // 归位动画中：透明占位参与布局（供量取目标矩形）但不可见不可点，
+    // 小窗是唯一可见端，恢复握手完成后亮出
+    return _pipRestoreInFlight
+        ? IgnorePointer(child: Opacity(opacity: 0, child: result))
+        : result;
+  }
+
+  Widget _unstartedPanel(double width) {
+    return Obx(() {
+      final cover = _liveRoomController.roomInfoH5.value?.roomInfo?.cover;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (cover != null && cover.isNotEmpty)
+            CachedNetworkImage(
+              fit: BoxFit.cover,
+              memCacheWidth: width.cacheSize(context),
+              imageUrl: ImageUtils.safeThumbnailUrl(cover),
+              placeholder: (_, _) => const SizedBox.shrink(),
+              errorBuilder: (_, _, _) => const ColoredBox(color: Colors.black),
+            )
+          else
+            Image.asset(
+              Assets.livingBackground,
+              fit: BoxFit.cover,
+              cacheWidth: width.cacheSize(context),
+            ),
+          const ColoredBox(color: Color(0x66000000)),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _liveRoomController.title.value,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15, color: baseWhite),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _liveRoomController.isRoundRoom ? '直播未开始 轮播中' : '直播未开始',
+                    style: const TextStyle(fontSize: 13, color: baseWhite),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  // 本页能否被 pop 收起：popScope 的 canPop 与手动小窗入口共用同一判定
+  bool get _canPopPage => _liveRoomController.canPopPage;
+
+  void _onPopInvokedWithResult(bool didPop, Object? result) {
+    if (didPop) {
+      final manual = _manualPipRequested;
+      _manualPipRequested = false;
+      _startLivePipIfNeeded(manual: manual);
+    } else {
+      // pop 被拦下，手动小窗的一次性豁免不能留给下一次普通返回
+      _manualPipRequested = false;
+    }
+    plPlayerController.onPopInvokedWithResult(
+      didPop,
+      result,
+      pauseOnPop: !_isEnteringPipMode,
+    );
+  }
+
+  /// 三点菜单「应用内画中画」：不依赖设置开关，把当前直播临时收进小窗。
+  /// 复用返回键收起路径（pop → _onPopInvokedWithResult → _startLivePipIfNeeded），
+  /// 只是提前把条件凑齐：全屏的先退全屏、暂停的先续播、嵌套页先静默移除
+  Future<void> _enterLivePipManually() async {
+    if (!mounted || _isEnteringPipMode || _manualPipRequested) {
+      return;
+    }
+    if (plPlayerController.isFullScreen.value) {
+      // 全屏时返回键语义是"退出全屏"，页面本就不能被 pop；且直接 pop 会把
+      // 播放器单例的 isFullScreen 留在 true、方向也不复位。先退回半屏再走正常流程
+      final rectBeforeExit = _livePlayerRect();
+      await plPlayerController.triggerFullScreen(status: false);
+      if (!mounted) {
+        return;
+      }
+      // 退出全屏会切到半屏的布局分支（与方向是否变化无关），布局落定前
+      // _livePlayerRect() 量的还是全屏时的整屏位置，收起动画会从整屏开始。
+      // 以播放器矩形变化为落定信号；不能拿 MediaQuery.size 当信号——
+      // 移动端退全屏只是隐藏系统栏，size 并不变
+      // 量不到基线矩形（播放器未就绪，收起本来也不会有动画）时不必等
+      await PipOverlayService.awaitLayoutSettled(
+        () => rectBeforeExit == null || _livePlayerRect() != rectBeforeExit,
+      );
+      if (!mounted) {
+        return;
+      }
+    }
+    if (plPlayerController.videoController != null &&
+        !plPlayerController.playerStatus.isPlaying) {
+      // 手动进小窗是明确的播放意图
+      await plPlayerController.play();
+      if (!mounted) {
+        return;
+      }
+    }
+    if (!_canPopPage || !_shouldStartLivePip(manual: true)) {
+      SmartDialog.showToast('当前无法进入小窗');
+      return;
+    }
+    if (PipOverlayService.removeNestedVideoLikeRoutesBelow(context) > 0) {
+      // 被移除的页面要到下一帧才卸载并归还各自的播放器计数；等它们落地再 pop，
+      // 否则小窗按 X 关闭时计数未归零、播放器不会真正销毁
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) {
+        return;
+      }
+    }
+    _manualPipRequested = true;
+    Get.back();
+  }
+
+  /// [manual] 为三点菜单手动触发：不受设置开关约束
+  bool _shouldStartLivePip({bool manual = false}) {
+    if (!manual && !Pref.enableInAppPip) {
+      return false;
+    }
+    if (LivePipOverlayService.isInPipMode) {
+      return false;
+    }
+    if (plPlayerController.isDesktopPip || plPlayerController.isPipMode) {
+      return false;
+    }
+    if (!plPlayerController.isLive) {
+      return false;
+    }
+    if (plPlayerController.videoPlayerController == null) {
+      return false;
+    }
+    // 如果即将进入听视频界面，不开启小窗(没啥用，直播间没有相关入口，但还是留着吧？)
+    if (Get.currentRoute == '/audio') {
+      return false;
+    }
+    return true;
+  }
+
+  void _startLivePipIfNeeded({bool manual = false}) {
+    if (!_shouldStartLivePip(manual: manual)) {
+      return;
+    }
+    // 设置小窗模式标志
+    _liveRoomController.isInPipMode.value = true;
+    _isEnteringPipMode = true;
+    // 继续播放直播消息
+    _liveRoomController.startLiveMsg();
+
+    try {
+      LivePipOverlayService.startLivePip(
+        context: context,
+        heroTag: heroTag,
+        roomId: _liveRoomController.roomId,
+        plPlayerController: plPlayerController,
+        controller: _liveRoomController,
+        // 收起动画源矩形：页面播放器当前屏幕位置；量取失败则无动画直接出现
+        sourceRect: _livePlayerRect(),
+        onClose: () {
+          _isEnteringPipMode = false;
+          _liveRoomController.isInPipMode.value = false;
+          _handleLivePipCloseCleanup();
+        },
+        onReturn: () {
+          _isEnteringPipMode = false;
+          Get.toNamed(
+            '/liveRoom',
+            arguments: {
+              'roomId': _liveRoomController.roomId,
+              'fromPip': true,
+            },
+          );
+        },
+      );
+    } catch (e) {
+      // PiP 启动失败，重置状态
+      _isEnteringPipMode = false;
+      _liveRoomController.isInPipMode.value = false;
+      logger.e('Failed to start live PiP: $e');
+    }
+  }
+
+  void _handleLivePipCloseCleanup() {
+    if (plPlayerController.isCloseAll) {
+      return;
+    }
+    _liveRoomController.isInPipMode.value = false;
+    // 路由 pop 时 onClose 已因 isInPipMode 跳过清理，下方 Get.delete 对已
+    // 注销实例是空操作，弹幕流与计时器需在此显式关闭
+    _liveRoomController
+      ..closeLiveMsg()
+      ..cancelLiveTimer()
+      ..cancelLikeTimer();
+    videoPlayerServiceHandler?.onVideoDetailDispose(heroTag);
+    if (Platform.isAndroid && !plPlayerController.setSystemBrightness) {
+      ScreenBrightnessPlatform.instance.resetApplicationScreenBrightness();
+    }
+    PlPlayerController.setPlayCallBack(null);
+    plPlayerController
+      ..removeStatusLister(playerListener)
+      ..dispose();
+
+    // 彻底清理永久控制器
+    Get.delete<LiveRoomController>(tag: heroTag, force: true);
+  }
+
+  int _beginLiveRoomLeave() {
+    if (!_liveRoomAway) {
+      _liveRoomAway = true;
+      _liveResumeEpoch += 1;
+      _liveRoomController.isPlaying =
+          plPlayerController.playerStatus.isPlaying;
+    }
+    return _liveResumeEpoch;
+  }
+
+  bool _canResumeLiveRoom(int resumeEpoch) {
+    return mounted &&
+        resumeEpoch == _liveResumeEpoch &&
+        (ModalRoute.of(context)?.isCurrent ?? false);
+  }
+
+  Future<void> _requestLiveRoomResume(int resumeEpoch) {
+    if (!_canResumeLiveRoom(resumeEpoch)) {
+      return Future<void>.value();
+    }
+    if (_liveResumeHandledEpoch == resumeEpoch) {
+      return _liveResumeFuture ?? Future<void>.value();
+    }
+
+    _liveResumeHandledEpoch = resumeEpoch;
+    _liveRoomAway = false;
+    final previousResume = _liveResumeFuture;
+
+    final resumeFuture = Future<void>.microtask(() async {
+      try {
+        if (previousResume != null) {
+          await previousResume;
+        }
+        if (!_canResumeLiveRoom(resumeEpoch)) return;
+
+        removeObserverMobile(this);
+        addObserverMobile(this);
+        plPlayerController.removeStatusLister(playerListener);
+
+        await _onPopNext();
+      } catch (error, stackTrace) {
+        logger.e(
+          'Failed to resume live room: $error\n$stackTrace',
+        );
+        if (_canResumeLiveRoom(resumeEpoch)) {
+          SmartDialog.showToast('直播恢复失败，请退出直播间后重试');
+        }
+      }
+    });
+
+    _liveResumeFuture = resumeFuture;
+    return resumeFuture;
+  }
+
+  bool _hasLiveRoomSource(PlPlayerController player) {
+    return identical(player, PlPlayerController.instance) &&
+        player.videoPlayerController != null &&
+        player.isLive &&
+        player.roomId == _liveRoomController.roomId &&
+        player.cid == null &&
+        player.dataStatus.value == DataStatus.loaded;
+  }
+
+  bool _reconcilePipOnResume() {
+    _isEnteringPipMode = false;
+    _liveRoomController.isInPipMode.value = false;
+
+    if (PipOverlayService.isInPipMode) {
+      PipOverlayService.stopPip(
+        callOnClose: true,
+        immediate: true,
+      );
+    }
+
+    if (!LivePipOverlayService.isInPipMode) {
+      if (_pipRestoreInFlight) {
+        _setPipRestoreInFlight(false);
+      }
+      return false;
+    }
+
+    final sameRoom =
+        LivePipOverlayService.currentRoomId == _liveRoomController.roomId;
+    final sameSource = _hasLiveRoomSource(
+      _liveRoomController.plPlayerController,
+    );
+
+    if (sameRoom && sameSource) {
+      if (!_pipRestoreInFlight ||
+          LivePipOverlayService.transition.phase != PipPhase.restoring) {
+        if (LivePipOverlayService.transition.beginRestore()) {
+          _setPipRestoreInFlight(true);
+          _scheduleLivePipRestoreAttach();
+        } else {
+          LivePipOverlayService.stopLivePip(
+            callOnClose: false,
+            immediate: true,
+          );
+          if (_pipRestoreInFlight) {
+            _setPipRestoreInFlight(false);
+          }
+        }
+      }
+      return true;
+    }
+
+    final savedController =
+        LivePipOverlayService.getSavedController<LiveRoomController>();
+    LivePipOverlayService.stopLivePip(
+      callOnClose: !identical(savedController, _liveRoomController),
+      immediate: true,
+    );
+    if (_pipRestoreInFlight) {
+      _setPipRestoreInFlight(false);
+    }
+    return false;
+  }
+
+  ({bool shouldPlay, bool needsRecovery}) _prepareLiveRoomResume() {
+    final ownerBeforeCleanup = PlPlayerController.playOwner;
+    final bool shouldPlay =
+        !_liveRoomController.isUnstartedRoom.value &&
+        (_liveRoomController.isPlaying ??
+            plPlayerController.playerStatus.isPlaying);
+
+    final restoringSameRoomPip = _reconcilePipOnResume();
+    plPlayerController = _liveRoomController.plPlayerController;
+
+    final bool needsRecovery =
+        !_hasLiveRoomSource(plPlayerController) ||
+        (ownerBeforeCleanup != null &&
+            ownerBeforeCleanup != _playOwner &&
+            !restoringSameRoomPip);
+
+    if (needsRecovery) {
+      _liveRoomController.isReturningFromPip = false;
+    }
+
+    return (
+      shouldPlay: shouldPlay,
+      needsRecovery: needsRecovery,
+    );
+  }
+
+  Future<void> _restoreLiveRoomPlayback(
+    bool shouldPlay,
+    int resumeEpoch,
+  ) async {
+    if (!_canResumeLiveRoom(resumeEpoch)) return;
+
+    final player = plPlayerController;
+    final isPlaying =
+        player.videoPlayerController?.state.playing ??
+        player.playerStatus.isPlaying;
+
+    if (shouldPlay) {
+      if (!isPlaying) {
+        await player.play();
+      }
+      if (!_canResumeLiveRoom(resumeEpoch)) return;
+      _liveRoomController
+        ..danmakuController?.resume()
+        ..startLiveMsg();
+    } else {
+      if (isPlaying) {
+        await player.pause();
+      }
+      if (!_canResumeLiveRoom(resumeEpoch)) return;
+      _liveRoomController
+        ..danmakuController?.pause()
+        ..closeLiveMsg();
+    }
   }
 
   Widget get childWhenDisabled {
@@ -561,7 +1158,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
 
   void _showRank() {
     if (_liveRoomController.ruid case final ruid?) {
-      _onPushPopupRoute();
+      final resumeEpoch = _onPushPopupRoute();
       final heightFactor = PlatformUtils.isMobile && !isPortrait ? 1.0 : 0.7;
       showModalBottomSheet(
         context: context,
@@ -577,7 +1174,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
             roomId: _liveRoomController.roomId,
           ),
         ),
-      ).whenComplete(_onPopPopupRoute);
+      ).whenComplete(() => _onPopPopupRoute(resumeEpoch));
     }
   }
 
@@ -655,7 +1252,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
         //   onPressed: _liveRoomController.queryLiveUrl,
         //   icon: const Icon(Icons.refresh, size: 20),
         // ),
-        PopupMenuButton(
+        StaticPopupMenuButton(
           icon: const Icon(Icons.more_vert, size: 20),
           itemBuilder: (BuildContext context) {
             final liveUrl =

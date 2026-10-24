@@ -4,6 +4,9 @@ import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/common/widgets/view_sliver_safe_area.dart';
 import 'package:PiliPlus/pages/search/controller.dart' show DebounceStreamState;
 import 'package:PiliPlus/pages/setting/models/dm_settings.dart';
+// fork 保留的并行结构（动态流设置）
+import 'package:PiliPlus/pages/setting/models/dynamics_settings.dart';
+// 上游新增的动态设置分组
 import 'package:PiliPlus/pages/setting/models/dyn_settings.dart';
 import 'package:PiliPlus/pages/setting/models/extra_settings.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
@@ -37,7 +40,10 @@ class _SettingsSearchPageState
     ...dynSettings,
     ...privacySettings,
     ...recommendSettings,
+    ...dynamicsSettings,
     ...videoSettings,
+    ...dmSettings,
+    ...replySettings,
     ...playSettings,
     ...styleSettings,
   ];

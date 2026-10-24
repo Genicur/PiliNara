@@ -24,6 +24,7 @@ class PlayerFocus extends StatelessWidget {
     this.canPlay,
     this.onSkipSegment,
     this.onRefresh,
+    this.focusNode,
   });
 
   final Widget child;
@@ -33,6 +34,9 @@ class PlayerFocus extends StatelessWidget {
   final ValueGetter<bool>? canPlay;
   final ValueGetter<bool>? onSkipSegment;
   final VoidCallback? onRefresh;
+
+  /// 外部持有的焦点节点：供页面在点击/悬停视频区时抢回焦点（恢复方向键音量控制）
+  final FocusNode? focusNode;
 
   static bool _shouldHandle(LogicalKeyboardKey logicalKey) {
     return logicalKey == LogicalKeyboardKey.tab ||
@@ -45,6 +49,7 @@ class PlayerFocus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      focusNode: focusNode,
       autofocus: true,
       onKeyEvent: (node, event) {
         final handled = _handleKey(context, event);
@@ -243,9 +248,8 @@ class PlayerFocus extends StatelessWidget {
         if (isDigit1 || key == LogicalKeyboardKey.digit2) {
           if (HardwareKeyboard.instance.isShiftPressed && hasPlayer) {
             final speed = isDigit1 ? 1.0 : 2.0;
-            if (speed != plPlayerController.playbackSpeed) {
-              plPlayerController.setPlaybackSpeed(speed);
-            }
+            // 无条件走手动调速：锁定态下即使速度相同也需要解除锁定
+            plPlayerController.setManualPlaybackSpeed(speed);
             SmartDialog.showToast('${speed}x播放');
           }
           return true;
@@ -283,7 +287,7 @@ class PlayerFocus extends StatelessWidget {
 
           case LogicalKeyboardKey.bracketLeft:
             if (introController case final introController?) {
-              if (!introController.prevPlay()) {
+              if (!introController.prevPlay(manual: true)) {
                 SmartDialog.showToast('已经是第一集了');
               }
             }
@@ -291,7 +295,7 @@ class PlayerFocus extends StatelessWidget {
 
           case LogicalKeyboardKey.bracketRight:
             if (introController case final introController?) {
-              if (!introController.nextPlay()) {
+              if (!introController.nextPlay(manual: true)) {
                 SmartDialog.showToast('已经是最后一集了');
               }
             }

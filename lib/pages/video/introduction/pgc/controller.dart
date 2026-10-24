@@ -19,6 +19,7 @@ import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/bili_utils.dart';
@@ -26,9 +27,9 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
-import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -53,6 +54,9 @@ class PgcIntroController extends CommonIntroController {
       initialScrollOffset: index * 150,
     );
   }
+
+  // 是否正在进入应用内小窗
+  bool isEnteringPip = false;
 
   @override
   (Object, int) get getFavRidType => (epId!, 24);
@@ -87,6 +91,19 @@ class PgcIntroController extends CommonIntroController {
       }
       queryVideoTags();
     }
+  }
+
+  @override
+  void onClose() {
+    if (kDebugMode) {
+      logger.i(
+        '[PgcIntroController] onClose() called, isEnteringPip: $isEnteringPip',
+      );
+    }
+    if (isEnteringPip) return;
+    _seasonController?.dispose();
+    _seasonController = null;
+    super.onClose();
   }
 
   // 获取点赞/投币/收藏状态
@@ -156,20 +173,19 @@ class PgcIntroController extends CommonIntroController {
               PiliAndroidHelper.openUrl(videoUrl);
             },
           ),
-          if (PlatformUtils.isMobile)
-            DialogOption(
-              child: const Text('分享视频', style: TextStyle(fontSize: 14)),
-              onPressed: () {
-                final item = pgcItem.episodes?.firstWhereOrNull(
-                  (item) => item.epId == epId,
-                );
-                Get.back();
-                ShareUtils.shareText(
-                  '${pgcItem.title}${item != null ? ' ${item.showTitle}' : ''}'
-                  ' - $videoUrl',
-                );
-              },
-            ),
+          DialogOption(
+            child: const Text('分享视频', style: TextStyle(fontSize: 14)),
+            onPressed: () {
+              final item = pgcItem.episodes?.firstWhereOrNull(
+                (item) => item.epId == epId,
+              );
+              Get.back();
+              ShareUtils.shareText(
+                '${pgcItem.title}${item != null ? ' ${item.showTitle}' : ''}'
+                ' - $videoUrl',
+              );
+            },
+          ),
           if (isLogin)
             DialogOption(
               child: const Text('分享至动态', style: TextStyle(fontSize: 14)),
@@ -251,7 +267,10 @@ class PgcIntroController extends CommonIntroController {
   }
 
   // 修改分P或番剧分集
-  Future<bool> onChangeEpisode(BaseEpisodeItem episode) async {
+  Future<bool> onChangeEpisode(
+    BaseEpisodeItem episode, {
+    bool manual = false,
+  }) async {
     try {
       final int epId = episode.epId ?? episode.id!;
       final String bvid = episode.bvid ?? this.bvid;
@@ -262,6 +281,10 @@ class PgcIntroController extends CommonIntroController {
         return false;
       }
       final String? cover = episode.cover;
+
+      if (manual) {
+        videoDetailCtr.plPlayerController.markManualEpisodeChange();
+      }
 
       // 重新获取视频资源
       this.epId = epId;
@@ -343,7 +366,7 @@ class PgcIntroController extends CommonIntroController {
   }
 
   @override
-  bool prevPlay() {
+  bool prevPlay({bool manual = false}) {
     final episodes = pgcItem.episodes!;
     int currentIndex = episodes.indexWhere(
       (e) => e.cid == videoDetailCtr.cid.value,
@@ -357,13 +380,13 @@ class PgcIntroController extends CommonIntroController {
         return false;
       }
     }
-    onChangeEpisode(episodes[prevIndex]);
+    onChangeEpisode(episodes[prevIndex], manual: manual);
     return true;
   }
 
   /// 列表循环或者顺序播放时，自动播放下一个；自动连播时，播放相关视频
   @override
-  bool nextPlay() {
+  bool nextPlay({bool manual = false}) {
     try {
       final episodes = pgcItem.episodes!;
 
@@ -381,7 +404,7 @@ class PgcIntroController extends CommonIntroController {
           return false;
         }
       }
-      onChangeEpisode(episodes[nextIndex]);
+      onChangeEpisode(episodes[nextIndex], manual: manual);
       return true;
     } catch (_) {
       return false;
@@ -517,10 +540,4 @@ class PgcIntroController extends CommonIntroController {
     return false;
   }
 
-  @override
-  void onClose() {
-    _seasonController?.dispose();
-    _seasonController = null;
-    super.onClose();
-  }
 }

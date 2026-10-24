@@ -1,7 +1,10 @@
+import 'dart:async' show unawaited;
+
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
+import 'package:PiliPlus/models_new/download/download_playback.dart';
 import 'package:PiliPlus/models_new/video/video_detail/stat_detail.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
-import 'package:PiliPlus/pages/download/download/controller.dart';
+import 'package:PiliPlus/services/download/download_library_service.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -38,11 +41,12 @@ class LocalIntroController extends CommonIntroController {
   @override
   bool get isShowOnlineTotal => false;
 
-  late final Set<String> aidSet = {};
+  // 是否正在进入应用内小窗
+  bool isEnteringPip = false;
 
   @override
   void onClose() {
-    aidSet.clear();
+    if (isEnteringPip) return;
     super.onClose();
   }
 
@@ -50,26 +54,33 @@ class LocalIntroController extends CommonIntroController {
   void onInit() {
     super.onInit();
     videoDetail.value.title = videoDetailCtr.args['title'];
-    final controller = Get.find<DownloadController>();
-    final list = <BiliDownloadEntryInfo>[];
-    for (final seaon in controller.seasons) {
-      for (final page in seaon.pages) {
-        final items = page.entries..sort(downloadEntrySort);
-        final completed = items.where((e) => e.isCompleted);
-        list.addAllIf(completed.isNotEmpty, completed);
-        if (completed.length == 1) {
-          aidSet.add(page.pageId);
-        }
-      }
+    unawaited(
+      _initPlaylist(
+        Get.find<DownloadLibraryService>(),
+        DownloadVideoPlayContext.fromArguments(videoDetailCtr.args),
+      ),
+    );
+  }
+
+  /// 播放列表直接取缓存库的分组结果：带合集上下文时只放该合集，否则放全部
+  /// 缓存；顺序都是 合集 → 视频/分P 页 → 分P序号，且只含已缓存完成的条目。
+  Future<void> _initPlaylist(
+    DownloadLibraryService libraryService,
+    DownloadVideoPlayContext? playContext,
+  ) async {
+    await libraryService.waitForInitialization;
+    if (isClosed) {
+      return;
     }
+    final list = libraryService.resolvePlaylist(playContext);
     this.list.value = list;
     final currCid = videoDetailCtr.cid.value;
     final index = list.indexWhere((e) => e.cid == currCid);
-    this.index.value = index;
-    if (PlatformUtils.isMobile) {
-      onVideoDetailChange(list[index]);
+    this.index.value = index == -1 ? 0 : index;
+    if (list.isNotEmpty && PlatformUtils.isMobile) {
+      onVideoDetailChange(list[this.index.value]);
     }
-    if (index != 0) {
+    if (this.index.value != 0) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         try {
           final state = videoDetailCtr.scrollKey.currentState;
@@ -93,7 +104,7 @@ class LocalIntroController extends CommonIntroController {
   final list = RxList<BiliDownloadEntryInfo>();
 
   @override
-  bool nextPlay() {
+  bool nextPlay({bool manual = false}) {
     final next = index.value + 1;
     if (next < list.length) {
       playIndex(next);
@@ -115,7 +126,7 @@ class LocalIntroController extends CommonIntroController {
   }
 
   @override
-  bool prevPlay() {
+  bool prevPlay({bool manual = false}) {
     final prev = index.value - 1;
     if (prev >= 0) {
       playIndex(prev);

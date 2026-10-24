@@ -20,9 +20,13 @@ void main() {
   late Directory tempDir;
 
   setUpAll(() async {
-    tempDir = await Directory.systemTemp.createTemp('piliplus-account-test-');
+    tempDir = await Directory.systemTemp.createTemp('pilinara-account-test-');
     Hive.init(tempDir.path);
     GStorage.regAdapter();
+    // 上游把 buvid 改为 Pref.buvid（自动生成），构造账号时会读 GStorage.setting，
+    // 因此测试必须初始化 setting box，否则抛 LateInitializationError。
+    GStorage.setting = await Hive.openBox('setting');
+    GStorage.localCache = await Hive.openBox('localCache');
     Accounts.account = await Hive.openBox<LoginAccount>('account');
   });
 

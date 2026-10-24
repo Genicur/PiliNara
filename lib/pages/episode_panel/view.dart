@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/models/common/list_order.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
 import 'package:PiliPlus/common/widgets/image/image_save.dart';
@@ -56,7 +57,7 @@ class EpisodePanel extends CommonSlidePage {
     this.seasonId,
     this.initialTabIndex = 0,
     this.isSupportReverse,
-    this.isReversed,
+    this.listOrder,
     this.onReverse,
     required this.onChangeEpisode,
     this.onClose,
@@ -76,16 +77,17 @@ class EpisodePanel extends CommonSlidePage {
   final int? seasonId;
   final int initialTabIndex;
   final bool? isSupportReverse;
-  final bool? isReversed;
-  final Future<bool> Function(ugc.BaseEpisodeItem) onChangeEpisode;
+  final ListOrder? listOrder;
+  final Future<bool> Function(ugc.BaseEpisodeItem episode, {bool manual})
+  onChangeEpisode;
   final VoidCallback? onReverse;
   final VoidCallback? onClose;
 
   @override
-  State<EpisodePanel> createState() => _EpisodePanelState();
+  State<EpisodePanel> createState() => EpisodePanelState();
 }
 
-class _EpisodePanelState extends State<EpisodePanel>
+class EpisodePanelState extends State<EpisodePanel>
     with TickerProviderStateMixin, CommonSlideMixin {
   // tab
   late final TabController _tabController;
@@ -107,6 +109,10 @@ class _EpisodePanelState extends State<EpisodePanel>
 
   late final List<bool> _isReversed;
   late final List<ScrollController> _itemScrollController;
+
+  /// 当前激活子列表的滚动控制器（供视频页键盘滚动播放列表使用）
+  ScrollController get activeScrollController =>
+      _itemScrollController[_currentTabIndex.value];
 
   // fav
   Rx<LoadingState<bool>>? _favState;
@@ -442,7 +448,7 @@ class _EpisodePanelState extends State<EpisodePanel>
               SmartDialog.showToast('切换到：$title');
               widget.onClose?.call();
 
-              widget.onChangeEpisode(episode).then((res) {
+              widget.onChangeEpisode(episode, manual: true).then((res) {
                 if (res) {
                   if (!showTitle) {
                     _currentItemIndex = index;
@@ -625,14 +631,19 @@ class _EpisodePanelState extends State<EpisodePanel>
     };
   }
 
-  Widget get _buildReverseBtn => iconButton(
-    iconSize: 22,
-    tooltip: widget.isReversed == true ? '正序播放' : '倒序播放',
-    icon: widget.isReversed == true
-        ? const Icon(MdiIcons.sortDescending)
-        : const Icon(MdiIcons.sortAscending),
-    onPressed: () => widget.onReverse?.call(),
-  );
+  Widget get _buildReverseBtn {
+    final order = widget.listOrder;
+    return iconButton(
+      iconSize: 22,
+      tooltip: order?.label ?? '正序播放',
+      icon: switch (order) {
+        ListOrder.desc => const Icon(MdiIcons.sortDescending),
+        ListOrder.shuffle => const Icon(Icons.shuffle),
+        _ => const Icon(MdiIcons.sortAscending),
+      },
+      onPressed: () => widget.onReverse?.call(),
+    );
+  }
 
   void _animToTopOrBottom({bool top = true}) {
     final tabIndex = _currentTabIndex.value;

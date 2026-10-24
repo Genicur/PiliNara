@@ -2,11 +2,13 @@ import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/badge.dart';
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/stat/stat.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/stat_type.dart';
 import 'package:PiliPlus/models/common/video/base_quality.dart';
+import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/episode.dart' as pgc;
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
@@ -77,6 +79,21 @@ class _DownloadPanelState extends State<DownloadPanel> {
     colorScheme = .of(context);
   }
 
+  /// 该条目所属的 UGC 合集，序号取它在 `episodes`（ugcSeason 各 section
+  /// 拉平）中的位置，也就是合集里的原顺序。
+  ///
+  /// 只有合集成员才算：成员是 [ugc.EpisodeItem]；「有 ugcSeason 但 sections
+  /// 为空、episodes 退化成单视频分P列表」时拿到的是 [Part]，此时不属于任何
+  /// 合集，这些分P 仍按 avid 归成同一页。
+  SeasonInfo? _seasonInfo(ugc.BaseEpisodeItem episode, ugc.EpisodeItem? parent) {
+    final item = parent ?? episode;
+    if (item is! ugc.EpisodeItem) {
+      return null;
+    }
+    final index = widget.episodes.indexOf(item);
+    return index < 0 ? null : widget.videoDetail?.seasonInfo(index);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -117,52 +134,53 @@ class _DownloadPanelState extends State<DownloadPanel> {
       padding: const EdgeInsets.fromLTRB(16, 12, 0, 12),
       child: Row(
         children: [
-          Expanded(
-            child: Row(
-              spacing: 12,
-              children: [
-                Text('画质', style: textStyle),
-                Builder(
-                  builder: (context) => PopupMenuButton<VideoQuality>(
-                    initialValue: _quality,
-                    onSelected: (value) {
-                      _quality = value;
-                      (context as Element).markNeedsBuild();
-                    },
-                    itemBuilder: (context) => VideoQuality.values
-                        .map(
-                          (e) => PopupMenuItem(
-                            value: e,
-                            child: Text(e.desc),
-                          ),
-                        )
-                        .toList(),
-                    child: _buildPopupMenuChild(_quality.desc),
-                  ),
-                ),
-                Text('音质', style: textStyle),
-                Builder(
-                  builder: (context) => PopupMenuButton<AudioQuality>(
-                    initialValue: _audioQuality,
-                    onSelected: (value) {
-                      _audioQuality = value;
-                      (context as Element).markNeedsBuild();
-                    },
-                    itemBuilder: (context) => AudioQuality.values
-                        .map(
-                          (e) => PopupMenuItem(
-                            value: e,
-                            child: Text(e.desc),
-                          ),
-                        )
-                        .toList(),
-                    child: _buildPopupMenuChild(_audioQuality.desc),
-                  ),
-                ),
-              ],
+          Text(
+            '目标画质',
+            style: textStyle,
+          ),
+          Builder(
+            builder: (context) => StaticPopupMenuButton<VideoQuality>(
+              initialValue: _quality,
+              onSelected: (value) {
+                _quality = value;
+                (context as Element).markNeedsBuild();
+              },
+              itemBuilder: (context) => VideoQuality.values
+                  .map(
+                    (e) => PopupMenuItem(
+                      value: e,
+                      child: Text(e.desc),
+                    ),
+                  )
+                  .toList(),
+              child: _buildPopupMenuChild(_quality.desc),
             ),
           ),
-          if (PlatformUtils.isMobile)
+          const SizedBox(width: 16),
+          Text(
+            '目标音质',
+            style: textStyle,
+          ),
+          Builder(
+            builder: (context) => StaticPopupMenuButton<AudioQuality>(
+              initialValue: _audioQuality,
+              onSelected: (value) {
+                _audioQuality = value;
+                (context as Element).markNeedsBuild();
+              },
+              itemBuilder: (context) => AudioQuality.values
+                  .map(
+                    (e) => PopupMenuItem(
+                      value: e,
+                      child: Text(e.desc),
+                    ),
+                  )
+                  .toList(),
+              child: _buildPopupMenuChild(_audioQuality.desc),
+            ),
+          ),
+          if (PlatformUtils.isMobile) ...[
+            const Spacer(),
             Padding(
               padding: const .only(right: 16),
               child: StreamBuilder(
@@ -180,8 +198,8 @@ class _DownloadPanelState extends State<DownloadPanel> {
                   return const SizedBox.shrink();
                 },
               ),
-            )
-          else if (kDebugMode)
+            ),
+          ] else if (kDebugMode)
             Padding(
               padding: const .only(right: 16),
               child: Icon(
@@ -330,6 +348,7 @@ class _DownloadPanelState extends State<DownloadPanel> {
     }
 
     try {
+      final seasonInfo = _seasonInfo(episode, parent);
       switch (episode) {
         case Part part:
           _downloadService.downloadVideo(
@@ -339,7 +358,7 @@ class _DownloadPanelState extends State<DownloadPanel> {
             videoArc: parent,
             videoQuality: _quality,
             audioQuality: _audioQuality,
-            seasonInfo: widget.videoDetail?.seasonInfo(index),
+            seasonInfo: seasonInfo,
           );
           break;
         case ugc.EpisodeItem episode:
@@ -350,7 +369,7 @@ class _DownloadPanelState extends State<DownloadPanel> {
             videoArc: episode,
             videoQuality: _quality,
             audioQuality: _audioQuality,
-            seasonInfo: widget.videoDetail?.seasonInfo(index),
+            seasonInfo: seasonInfo,
           );
           break;
         case pgc.EpisodeItem episode:

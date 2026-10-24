@@ -20,6 +20,7 @@ import 'dart:io' show File, Platform;
 
 import 'package:PiliPlus/common/widgets/colored_box_transition.dart';
 import 'package:PiliPlus/common/widgets/dialog/simple_dialog_option.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/gesture/image_double_tap_gesture_recognizer.dart';
 import 'package:PiliPlus/common/widgets/gesture/image_horizontal_drag_gesture_recognizer.dart';
 import 'package:PiliPlus/common/widgets/gesture/image_tap_gesture_recognizer.dart';
@@ -570,7 +571,14 @@ class _GalleryViewerState extends State<GalleryViewer>
             },
             child: const Text('保存图片', style: TextStyle(fontSize: 14)),
           ),
-          if (PlatformUtils.isDesktop)
+          if (PlatformUtils.isDesktop) ...[
+            DialogOption(
+              onPressed: () {
+                Get.back();
+                ImageUtils.copyImg(item.url);
+              },
+              child: const Text('复制图片', style: TextStyle(fontSize: 14)),
+            ),
             DialogOption(
               onPressed: () {
                 Get.back();
@@ -578,6 +586,7 @@ class _GalleryViewerState extends State<GalleryViewer>
               },
               child: const Text('网页打开', style: TextStyle(fontSize: 14)),
             ),
+          ],
           if (widget.sources.length > 1)
             DialogOption(
               onPressed: () {
@@ -615,24 +624,30 @@ class _GalleryViewerState extends State<GalleryViewer>
     showMenu(
       context: context,
       position: PageUtils.menuPosition(details.globalPosition),
+      clipBehavior: Clip.antiAlias,
       items: [
-        PopupMenuItem(
+        CustomPopupMenuItem<void>(
           height: 42,
           onTap: () => ImageUtils.downloadImg([item.url]),
           child: const Text('保存图片', style: TextStyle(fontSize: 14)),
         ),
-        PopupMenuItem(
+        CustomPopupMenuItem<void>(
+          height: 42,
+          onTap: () => ImageUtils.copyImg(item.url),
+          child: const Text('复制图片', style: TextStyle(fontSize: 14)),
+        ),
+        CustomPopupMenuItem<void>(
           height: 42,
           onTap: () => Utils.copyText(item.url),
           child: const Text('复制链接', style: TextStyle(fontSize: 14)),
         ),
-        PopupMenuItem(
+        CustomPopupMenuItem<void>(
           height: 42,
           onTap: () => PageUtils.launchURL(item.url),
           child: const Text('网页打开', style: TextStyle(fontSize: 14)),
         ),
         if (widget.sources.length > 1)
-          PopupMenuItem(
+          CustomPopupMenuItem<void>(
             height: 42,
             onTap: () => ImageUtils.downloadImg(
               widget.sources.map((item) => item.url).toList(),
@@ -640,7 +655,7 @@ class _GalleryViewerState extends State<GalleryViewer>
             child: const Text('保存全部图片', style: TextStyle(fontSize: 14)),
           ),
         if (item.sourceType == SourceType.livePhoto)
-          PopupMenuItem(
+          CustomPopupMenuItem<void>(
             height: 42,
             onTap: () => ImageUtils.downloadLivePhoto(
               url: item.url,

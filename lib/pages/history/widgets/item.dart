@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/flutter/popup_menu.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/select_mask.dart';
 import 'package:PiliPlus/http/search.dart';
@@ -10,7 +11,6 @@ import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
-import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:material_ui/material_ui.dart';
@@ -99,7 +99,7 @@ class HistoryItem extends StatelessWidget {
               bottom: 0,
               width: 29,
               height: 29,
-              child: PopupMenuButton(
+              child: StaticPopupMenuButton(
                 padding: EdgeInsets.zero,
                 tooltip: '功能菜单',
                 icon: Icon(
@@ -107,7 +107,6 @@ class HistoryItem extends StatelessWidget {
                   color: theme.colorScheme.outline,
                   size: 18,
                 ),
-                position: PopupMenuPosition.under,
                 itemBuilder: (_) => [
                   if (item.authorMid != null &&
                       item.authorName?.isNotEmpty == true)
@@ -229,11 +228,8 @@ Future<void> onPushHistory(HistoryItemModel item) async {
       },
     );
   } else if (business == 'live') {
-    if (item.liveStatus == 1) {
-      PageUtils.toLiveRoom(item.history.oid);
-    } else {
-      SmartDialog.showToast('直播未开播');
-    }
+    // 未开播的直播间已降级为聊天室，可直接进入
+    PageUtils.toLiveRoom(item.history.oid);
   } else if (business == 'pgc') {
     PageUtils.viewPgc(
       epId: item.history.epid,

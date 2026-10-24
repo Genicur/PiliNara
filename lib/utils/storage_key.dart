@@ -116,6 +116,7 @@ abstract final class SettingBoxKey {
       continuePlayingPart = 'continuePlayingPart',
       cdnSpeedTest = 'cdnSpeedTest',
       unlimitedVipQuality = 'unlimitedVipQuality',
+      lockHdrVividQuality = 'lockHdrVividQuality',
       horizontalPreview = 'horizontalPreview',
       banWordForReply = 'banWordForReply',
       banWordForZone = 'banWordForZone',

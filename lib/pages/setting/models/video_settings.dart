@@ -92,6 +92,17 @@ List<SettingsModel> get videoSettings => [
     setKey: SettingBoxKey.unlimitedVipQuality,
     defaultVal: true,
   ),
+  // 仅在试用通道开启时才有意义：Web 通道拿不到 HDR，锁定也无从生效。
+  if (Pref.unlimitedVipQuality)
+    const SwitchModel(
+      title: '锁定 HDR Vivid 为全屏画质',
+      leading: Icon(Icons.hdr_on_outlined),
+      subtitle:
+          '开启后，全屏默认画质与全屏蜂窝网络画质都强制使用 HDR Vivid（最高档），'
+          '忽略下方两个画质设置',
+      setKey: SettingBoxKey.lockHdrVividQuality,
+      defaultVal: false,
+    ),
   if (!Pref.unlimitedVipQuality)
     SwitchModel(
       title: '音频不跟随 CDN 设置',

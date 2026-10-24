@@ -438,7 +438,10 @@ class VideoDetailController extends GetxController
       final halfScreenQa = Pref.defaultVideoQaHalfScreen;
       if (halfScreenQa == null) return;
       final isWiFi = await ConnectivityUtils.isWiFi;
-      final fsQa = isWiFi ? Pref.defaultVideoQa : Pref.defaultVideoQaCellular;
+      // 使用生效值：开启「锁定 HDR Vivid 为全屏默认画质」时会忽略用户设置。
+      final fsQa = isWiFi
+          ? Pref.effectiveFullscreenQa
+          : Pref.effectiveFullscreenQaCellular;
       final curHighestVideoQa = data.dash!.video!.first.quality.code;
       int targetQa = curHighestVideoQa;
       if (data.acceptQuality?.isNotEmpty == true &&
@@ -1144,7 +1147,10 @@ class VideoDetailController extends GetxController
     }
     if (plPlayerController.cacheVideoQa == null) {
       final isWiFi = netIsWiFi ?? await ConnectivityUtils.isWiFi;
-      final fsQa = isWiFi ? Pref.defaultVideoQa : Pref.defaultVideoQaCellular;
+      // 使用生效值：开启「锁定 HDR Vivid 为全屏默认画质」时会忽略用户设置。
+      final fsQa = isWiFi
+          ? Pref.effectiveFullscreenQa
+          : Pref.effectiveFullscreenQaCellular;
       final halfScreenQa = Pref.defaultVideoQaHalfScreen;
       plPlayerController
         // 半屏与蜂窝是两个正交的画质上限，同时命中取较低者（docs/adr/0002）

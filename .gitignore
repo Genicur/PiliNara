@@ -188,6 +188,7 @@ test*
 !/test/utils/app_cdn_replace_test.dart
 !/test/utils/cdn_app_sample_test.dart
 !/test/utils/vip_quality_gate_test.dart
+!/test/utils/hdr_vivid_lock_test.dart
 !/test/utils/pcdn_os_mcdn_test.dart
 !/test/utils/edl_media_header_test.dart
 !/test/utils/cdn_port_reset_test.dart

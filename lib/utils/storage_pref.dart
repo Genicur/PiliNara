@@ -721,6 +721,30 @@ abstract final class Pref {
   static bool get unlimitedVipQuality =>
       _setting.get(SettingBoxKey.unlimitedVipQuality, defaultValue: true);
 
+  /// 「锁定 HDR Vivid 为全屏默认画质」：开启且「无限试用会员画质」也开启时，
+  /// 全屏默认画质与全屏蜂窝画质都被强制锁定为 HDR Vivid（129），
+  /// 忽略用户在设置里选的值。关闭时行为与原生一致。
+  static bool get lockHdrVividQuality =>
+      _setting.get(SettingBoxKey.lockHdrVividQuality, defaultValue: false);
+
+  /// 锁定是否实际生效：需要试用开关与锁定开关 **同时** 开启。
+  /// 试用关闭时走 Web 通道拿不到 HDR，锁定就没有意义。
+  static bool get hdrVividQualityLocked =>
+      lockHdrVividQuality && unlimitedVipQuality;
+
+  /// 实际生效的全屏默认画质（WiFi）。
+  ///
+  /// 取流时应使用这个值而不是 [defaultVideoQa]：
+  /// 锁定生效时恒为 HDR Vivid，否则回落到用户设置。
+  static int get effectiveFullscreenQa =>
+      hdrVividQualityLocked ? VideoQuality.hdrVivid.code : defaultVideoQa;
+
+  /// 实际生效的全屏蜂窝网络画质。
+  static int get effectiveFullscreenQaCellular =>
+      hdrVividQualityLocked
+      ? VideoQuality.hdrVivid.code
+      : defaultVideoQaCellular;
+
   static bool get autoUpdate =>
       _setting.get(SettingBoxKey.autoUpdate, defaultValue: true);
 

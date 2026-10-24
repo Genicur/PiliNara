@@ -573,7 +573,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       (tempPlayerConf ? 0 : Pref.audioDelayMs).obs;
   Timer? _videoPictureSaveTimer;
 
-  late int? cacheVideoQa = PlatformUtils.isMobile ? null : Pref.defaultVideoQa;
+  late int? cacheVideoQa = PlatformUtils.isMobile ? null : Pref.effectiveFullscreenQa;
   late int cacheAudioQa = Pref.defaultAudioQa;
   bool enableHeart = true;
   late final String? hwdec = Pref.enableHA ? Pref.hardwareDecoding : null;
@@ -873,7 +873,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     videoPlayerServiceHandler?.enableBackgroundPlay = Pref.enableBackgroundPlay;
     continuePlayInBackground.value = Pref.continuePlayInBackground;
     playRepeat = Pref.playRepeat;
-    cacheVideoQa = PlatformUtils.isMobile ? null : Pref.defaultVideoQa;
+    cacheVideoQa = PlatformUtils.isMobile ? null : Pref.effectiveFullscreenQa;
     cacheAudioQa = Pref.defaultAudioQa;
     if (_playbackSpeed.value != playSpeedDefault) {
       unawaited(setPlaybackSpeed(playSpeedDefault));

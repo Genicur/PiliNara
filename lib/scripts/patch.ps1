@@ -240,22 +240,46 @@ switch ($platform.ToLower()) {
     default {}
 }
 
-try {
-    $MaterialUiDir = Get-ChildItem "$PubCacheDir/hosted/pub.dev" -Directory |
-        Where-Object { $_.Name -like "material_ui-*" } |
-        Select-Object -Last 1
+# 解析实际使用的 material_ui 目录。
+# 注意：package_config.json 可能指向 pub.dev 缓存，也可能指向镜像
+# （如 pub.flutter-io.cn）。只查 pub.dev 会在镜像环境下找不到包，
+# 进而给错误的副本打补丁 —— 这正是「本地增量构建能过、CI 全量构建失败」的原因。
+function Get-MaterialUiDirs {
+    $dirs = @()
+    foreach ($host_ in Get-ChildItem "$PubCacheDir/hosted" -Directory -ErrorAction SilentlyContinue) {
+        $dirs += Get-ChildItem $host_.FullName -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "material_ui-*" }
+    }
+    return $dirs
+}
 
-    if ($MaterialUiDir) {
-        Remove-Item -Path $MaterialUiDir.FullName -Recurse -Force
+try {
+    foreach ($d in Get-MaterialUiDirs) {
+        Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
 } catch {
 }
 
 flutter pub get
 
-$MaterialUiDir = Get-ChildItem "$PubCacheDir/hosted/pub.dev" -Directory |
-    Where-Object { $_.Name -like "material_ui-*" } |
-    Select-Object -Last 1
+# 以 package_config.json 记录的路径为准，避免给未使用的副本打补丁
+$MaterialUiDir = $null
+$pkgConfig = Join-Path $env:GITHUB_WORKSPACE ".dart_tool/package_config.json"
+if (Test-Path $pkgConfig) {
+    $cfg = Get-Content $pkgConfig -Raw | ConvertFrom-Json
+    $entry = $cfg.packages | Where-Object { $_.name -eq "material_ui" } | Select-Object -First 1
+    if ($entry -and $entry.rootUri) {
+        $uriPath = $entry.rootUri -replace '^file:///', ''
+        $candidate = $uriPath -replace '/', '\'
+        if (Test-Path $candidate) {
+            $MaterialUiDir = Get-Item $candidate
+        }
+    }
+}
+
+if (-not $MaterialUiDir) {
+    $MaterialUiDir = Get-MaterialUiDirs | Select-Object -Last 1
+}
 
 if (-not $MaterialUiDir) {
     throw "material_ui package not found in pub cache"

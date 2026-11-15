@@ -54,31 +54,21 @@ jobs:
                   flutter-version-file: pubspec.yaml
                   cache: true
 
-            - name: revert new overscrollindicator
-              working-directory: ${{ env.FLUTTER_ROOT }}
+            # 用项目自带的 patch.ps1 打全部框架补丁（22 个 Flutter 补丁 + 10 个
+            # material_ui 补丁）。原先这里只有 3 条硬编码的 git apply，
+            # 引用的文件名（bottom_sheet_patch.diff 等）根本不存在，
+            # 且都带 `|| true`，导致补丁静默失败、构建必然报
+            # "Type 'TabBarState' not found" 之类的错误。
+            - name: apply flutter framework patches
+              shell: pwsh
+              env:
+                GITHUB_WORKSPACE: ${{ github.workspace }}
               run: |
-                git config --global user.name "ci"
-                git config --global user.email "example@example.com"
-                git stash || true
-                git revert 362b1de29974ffc1ed6faa826e1df870d7bec75f --no-edit
-                git reset --soft HEAD~1
-                git stash pop || true
-              continue-on-error: true
-
-            - name: apply bottom sheet patch
-              working-directory: ${{ env.FLUTTER_ROOT }}
-              run: git apply $GITHUB_WORKSPACE/lib/scripts/bottom_sheet_patch.diff || true
-              continue-on-error: true
-
-            - name: apply modal barrier patch
-              working-directory: ${{ env.FLUTTER_ROOT }}
-              run: git apply $GITHUB_WORKSPACE/lib/scripts/modal_barrier_patch.diff || true
-              continue-on-error: true
-
-            - name: apply mouse cursor patch
-              working-directory: ${{ env.FLUTTER_ROOT }}
-              run: git apply $GITHUB_WORKSPACE/lib/scripts/mouse_cursor_patch.diff || true
-              continue-on-error: true
+                # patch.ps1 内部会调用 flutter pub get，必须保证 flutter 在 PATH 中
+                $env:PATH = "$env:FLUTTER_ROOT/bin;$env:PATH"
+                $env:GITHUB_WORKSPACE = "${{ github.workspace }}"
+                git config --global --add safe.directory "$env:FLUTTER_ROOT"
+                ./lib/scripts/patch.ps1 android
 
             - name: Write key
               if: github.event_name == 'workflow_dispatch'

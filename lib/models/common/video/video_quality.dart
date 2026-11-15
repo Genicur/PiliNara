@@ -49,6 +49,15 @@ final class VideoQuality extends BaseQuality {
 
   static VideoQuality? safeFromCode(int code) => _codeMap[code];
 
+  /// 该档位是否属于 HDR 类（本项目 8bit 播放链路无法正确输出）。
+  ///
+  /// HDR Vivid(129) / HDR 真彩(125) / 杜比视界(126) 会明显发灰偏色；
+  /// 8K(127) 不是 HDR，不在排除范围内。
+  static bool isHdrQuality(int code) =>
+      code == hdrVivid.code ||
+      code == hdr.code ||
+      code == dolbyVision.code;
+
   factory VideoQuality.fromFormat(int code, List<FormatItem>? formats) {
     if (formats != null && formats.isNotEmpty) {
       for (final format in formats) {

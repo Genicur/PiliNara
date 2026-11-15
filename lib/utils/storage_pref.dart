@@ -444,6 +444,17 @@ abstract final class Pref {
   static int get sliderDuration =>
       _setting.get(SettingBoxKey.sliderDuration, defaultValue: 90);
 
+  /// 「锁定最高非 HDR 画质」：默认档位取已下发的最高非 HDR 档
+  /// （4K/1080P+ …），跳过 HDR Vivid / HDR 真彩 / 杜比视界。
+  ///
+  /// 默认开启：本项目播放链路只有 8bit 输出，HDR 档位放出来会发灰。
+  /// 「优先非 PCDN 节点」：优先挑官方 upos 节点，避免 PCDN 冷门视频卡顿。
+  static bool get preferNonPcdn =>
+      _setting.get(SettingBoxKey.preferNonPcdn, defaultValue: true);
+
+  static bool get lockHighestQuality =>
+      _setting.get(SettingBoxKey.lockHighestQuality, defaultValue: true);
+
   static int get defaultVideoQa => _setting.get(
     SettingBoxKey.defaultVideoQa,
     defaultValue: VideoQuality.super8k.code,

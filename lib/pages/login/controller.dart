@@ -37,6 +37,14 @@ class LoginPageController extends GetxController
       LoadingState<({String authCode, String url})>.loading().obs;
 
   late final TabController tabController;
+  bool _isPhoneReq = false;
+  Timer? phoneQrCodeTimer;
+  /// 与旧实现一致：用 LoadingState.obs，UI 侧 switch 才能匹配到 Success 分支。
+  /// 用 Rxn 会导致二维码永远不渲染（表现为「点进来没有二维码」）。
+  late final phoneCodeInfo =
+      LoadingState<({String authCode, String url})>.loading().obs;
+  late final RxInt phoneQrCodeLeftTime = 180.obs;
+  late final RxString phoneStatusQRCode = ''.obs;
 
   late final CaptchaDataModel captchaData = CaptchaDataModel();
   late final RxInt qrCodeLeftTime = 180.obs;
@@ -64,7 +72,7 @@ class LoginPageController extends GetxController
   @override
   void onInit() {
     super.onInit();
-    tabController = TabController(length: 4, vsync: this)
+    tabController = TabController(length: 5, vsync: this)
       ..addListener(_handleTabChange);
   }
 
@@ -74,6 +82,7 @@ class LoginPageController extends GetxController
       ..removeListener(_handleTabChange)
       ..dispose();
     qrCodeTimer?.cancel();
+    phoneQrCodeTimer?.cancel();
     smsSendCooldownTimer?.cancel();
     telTextController.dispose();
     usernameTextController.dispose();
@@ -81,6 +90,60 @@ class LoginPageController extends GetxController
     smsCodeTextController.dispose();
     cookieTextController.dispose();
     super.onClose();
+  }
+
+  /// 手机端扫码：拿到的 token 才能在 PlayView 解锁 4K 等档位。
+  ///
+  /// 与 [refreshQRCode]（HD 端）的区别只在 appkey 与 mobi_app，
+  /// 但服务端据此决定签发哪种 token，进而决定 PlayView 给不给高画质直链。
+  Future<void> refreshPhoneQRCode() async {
+    final res = await LoginHttp.getPhoneCode();
+    if (res case Success(:final response)) {
+      phoneQrCodeTimer?.cancel();
+      phoneCodeInfo.value = res;
+      phoneQrCodeTimer = Timer.periodic(const Duration(milliseconds: 1000), (t) {
+        final left = 180 - t.tick;
+        if (left <= 0) {
+          t.cancel();
+          phoneStatusQRCode.value = '二维码已过期，请刷新';
+          phoneQrCodeLeftTime.value = 0;
+          return;
+        }
+        phoneQrCodeLeftTime.value = left;
+        // 不再用 tabController.index 做守卫：横竖屏各有一套 TabBar、
+        // Get.back 后索引也可能变化，守卫会导致「二维码出来了但永不轮询」，
+        // 表现为扫码确认后客户端毫无反应。
+        // 只保留 _isPhoneReq 防重入。
+        if (_isPhoneReq) return;
+
+        _isPhoneReq = true;
+        LoginHttp.codePoll(response.authCode, phone: true).then((value) async {
+          _isPhoneReq = false;
+          if (value['status']) {
+            t.cancel();
+            phoneStatusQRCode.value = '扫码成功';
+            final data = value['data'];
+            if (data is Map && data['cookie_info']?['cookies'] is List) {
+              await setAccount(data, data['cookie_info']['cookies']);
+              Get.back();
+            } else {
+              // 有 status 但结构不对：把原始返回显示出来，别再静默失败
+              phoneStatusQRCode.value = '登录异常：$data';
+            }
+          } else if (value['code'] == 86038) {
+            t.cancel();
+            phoneQrCodeLeftTime.value = 0;
+            phoneStatusQRCode.value = '二维码已过期，请刷新';
+          } else {
+            // 把轮询返回码显示出来，便于定位（86039=待扫码 86090=待确认）
+            final msg = value['msg'];
+            final code = value['code'];
+            phoneStatusQRCode.value = '$msg';
+            if (code == 86090) phoneStatusQRCode.value = '已扫码，请在手机上确认';
+          }
+        });
+      });
+    }
   }
 
   Future<void> refreshQRCode() async {
@@ -125,6 +188,13 @@ class LoginPageController extends GetxController
     if (tabController.index == 2) {
       if (qrCodeTimer == null || !qrCodeTimer!.isActive) {
         refreshQRCode();
+      }
+    } else if (tabController.index == 4) {
+      // 手机扫码 tab（index 4）：切进来就自动申请二维码。
+      // 缺了这个分支，点进 tab 只会看到空白，什么都没发生 ——
+      // 表现为「手机扫码一直登录不上」。
+      if (phoneQrCodeTimer == null || !phoneQrCodeTimer!.isActive) {
+        refreshPhoneQRCode();
       }
     }
   }

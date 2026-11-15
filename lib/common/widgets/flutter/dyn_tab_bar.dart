@@ -79,9 +79,12 @@ class _DynTabBarState extends TabBarState {
     double? devicePixelRatio,
     required TabIndicatorAnimation indicatorAnimation,
     required TextDirection textDirection,
+    // material_ui 1.11.0 新增的必填参数（指示器最小宽度）
+    required double? minimumIndicatorWidth,
   }) {
     return _IndicatorPainter(
       controller: controller,
+      minimumIndicatorWidth: minimumIndicatorWidth,
       indicator: indicator,
       indicatorSize: indicatorSize,
       indicatorPadding: indicatorPadding,
@@ -113,6 +116,8 @@ class _IndicatorPainter extends IndicatorPainter {
     super.devicePixelRatio,
     required super.indicatorAnimation,
     required super.textDirection,
+    // material_ui 1.11.0 新增：指示器最小宽度（null = 不限制）
+    super.minimumIndicatorWidth,
   }) : super.builder(repaint: IndicatorPainterNotifier());
 
   int _correctTabIndex(int tabIndex) {

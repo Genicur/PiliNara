@@ -1,8 +1,15 @@
 import 'dart:convert';
 
 import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pb.dart'
+    show PlayViewReply;
+import 'package:PiliPlus/grpc/bilibili/app/playurl/v1.pbenum.dart' show CodeType;
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show ReplyInfo;
+import 'package:PiliPlus/grpc/playurl.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart'
+    show VideoQuality;
+import 'package:PiliPlus/models/video/play/playview_convert.dart';
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
@@ -250,6 +257,79 @@ abstract final class VideoHttp {
     }
   }
 
+  /// 走 APP 通道取流。拿不到高画质时返回 null，由调用方回退 Web。
+  ///
+  /// 关键条件（缺一不可，实测）：
+  /// * **手机端 access_token**：TV / HD 端签发的 token 无效，只能拿到 1080P；
+  /// * 手机端指纹（见 `GrpcHeaders.newPlayViewHeaders`）。
+  static Future<PlayUrlModel?> _videoUrlByApp({
+    int? avid,
+    String? bvid,
+    required int cid,
+  }) async {
+    final account = Accounts.video;
+    final accessKey = account.accessKey;
+    if (accessKey == null || accessKey.isEmpty) return null;
+
+    final int? aid = avid ?? (bvid != null ? IdUtils.bv2av(bvid) : null);
+    if (aid == null || aid <= 0) return null;
+
+    try {
+      final preferCodecType = _preferCodecType;
+      final res = await PlayUrlGrpc.playView(
+        aid: aid,
+        cid: cid,
+        preferCodecType: preferCodecType,
+        accessKey: accessKey,
+        buvid: account.buvid,
+      );
+      if (res case Success(:final response)) {
+        final replies = <PlayViewReply>[response];
+
+        // HDR/8K 只在 HEVC/AV1 下带直链：首选 AVC 时这些档位只有 StreamInfo。
+        // 检测到就补发一次其它编码的请求再合并。
+        if (PlayViewConverter.missingDashQualities(response).isNotEmpty) {
+          final fallbackCodec = preferCodecType == CodeType.CODE265
+              ? CodeType.CODEAV1
+              : CodeType.CODE265;
+          final other = await PlayUrlGrpc.playView(
+            aid: aid,
+            cid: cid,
+            preferCodecType: fallbackCodec,
+            accessKey: accessKey,
+            buvid: account.buvid,
+          );
+          if (other case Success(:final response)) {
+            replies.add(response);
+          }
+        }
+
+        final model = PlayViewConverter.toPlayUrlModelFromReplies(replies);
+        if (model != null && model.dash?.video?.isNotEmpty == true) {
+          // 服务端按 token 来源决定档位：HD 端 token 只给到 480P/360P。
+          // 这种结果不能接管，否则会把原本能看 1080P 的用户降级。
+          final topQuality = model.dash!.video!.first.quality.code;
+          if (topQuality >= VideoQuality.high1080.code) {
+            return model;
+          }
+        }
+      }
+    } catch (_) {
+      // 静默回退 Web
+    }
+    return null;
+  }
+
+  static CodeType get _preferCodecType {
+    final codecs = Pref.preferCodecs;
+    if (codecs.isEmpty) return CodeType.CODE265;
+    return switch (codecs.first) {
+      .AVC => CodeType.CODE264,
+      .AV1 => CodeType.CODEAV1,
+      _ => CodeType.CODE265,
+    };
+  }
+
   // 视频流
   @pragma('vm:notify-debugger-on-exception')
   static Future<LoadingState<PlayUrlModel>> videoUrl({
@@ -265,6 +345,23 @@ abstract final class VideoHttp {
     bool voiceBalance = false,
     bool fallback = false,
   }) async {
+    // 【APP 通道优先】纯 UGC 视频改走 APP gRPC PlayView。
+    //
+    // 原因：Web 的 playurl 对非大会员恒定封顶 1080P(80)，qn/fnval 怎么调都一样；
+    // APP 通道（手机端指纹 + 手机端 token）会下发 4K/1080P+/1080P60 的真实直链。
+    // 通道必须「每视频一次」而不是「按 qn 分流」——videoUrl 一次返回全部档位，
+    // 若按本次 qn 决定通道，用户切到 1080P 后再进视频就会退回 Web、画质列表塌回 1080P。
+    //
+    // 失败（非 UGC / 未登录 / 接口异常 / 只回 480P 以下）时静默回退下面的 Web 流程。
+    if (!fallback && videoType == .ugc && epid == null && seasonId == null) {
+      final appModel = await _videoUrlByApp(
+        avid: avid,
+        bvid: bvid,
+        cid: cid,
+      );
+      if (appModel != null) return Success(appModel);
+    }
+
     final dmImgStr = Utils.base64EncodeRandomString(16, 64);
     final dmCoverImgStr = Utils.base64EncodeRandomString(32, 128);
     final params = await WbiSign.makSign({

@@ -1,11 +1,13 @@
 import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
+import 'package:PiliPlus/models/video/play/playview_convert.dart';
 import 'package:PiliPlus/models/video/play/url.dart'
     show AudioItem, VideoItem, FormatItem;
 import 'package:PiliPlus/models_new/live/live_room_play_info/codec.dart';
 import 'package:PiliPlus/utils/cdn_node_store.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
+import 'package:PiliPlus/utils/pcdn_picker.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
@@ -34,6 +36,16 @@ abstract final class VideoUtils {
 
   // host 首段为 API/上报类前缀的域名不参与自定义节点替换
   static final _blockedHostPrefix = RegExp(r'^(?:bvc|data|pbp|api)\w*\.');
+
+  /// PCDN 直链判定：`*.mcdn.bilivideo.*`（带显式端口的节点）。
+  ///
+  /// 实测（2026-11-15，真实 APP 直链）：`xy36x250x117x106xy.mcdn.bilivideo.cn:8082`
+  /// 原样请求 206，换成 upos-sz-mirror08c / cos / hw **全部 403**。
+  /// 因此这类直链必须原样使用，不能参与 CDN 替换。
+  static bool _isPcdnLockedUrl(String url) {
+    final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+    return host.contains('.mcdn.bilivideo.');
+  }
 
   static bool _isReplaceableMediaHost(String host) {
     final lower = host.toLowerCase();
@@ -84,14 +96,32 @@ abstract final class VideoUtils {
     bool applyCustomCDN = true,
     bool isAudio = false,
   }) {
+    // 【最优先：PCDN 直链一律不换 host】
+    //
+    // 实测（2026-11-15，三个视频 × 六个节点，逐条验证）：
+    //   APP 直链原样（mcdn）→ 206
+    //   换成 08c / 08ct / cos / coso1 / hw / ali → **全部 403**
+    // 原因是 `uparams` 里含 `os=mcdn`，签名与节点绑定，换 host 即失效。
+    //
+    // 这个判断必须放在**最前面**：一旦进入下面按 host 分流的逻辑，
+    // `/upgcxcode/` 分支会走到 replace(host:)，替换照样发生。
+    final first = urls.firstWhere((e) => e.isNotEmpty, orElse: () => '');
+    if (first.isNotEmpty && _isPcdnLockedUrl(first)) {
+      return first;
+    }
+
     defaultCDNService ??= cdnService;
     customHost ??= applyCustomCDN ? customCDNUrl : null;
     if (isAudio && disableAudioCDN) {
       customHost = null;
     }
 
+    // 【PCDN 降优先级】原样播放时，优先选不带端口的官方节点。
+    // APP 通道下发的直链里 PCDN（mcdn / mountaintoys:端口）占多数，
+    // 冷门视频会慢到没法看；upos 官方节点速度稳定。
+    // 注意：这里只挑「用哪条」，不改变已有 CDN 替换逻辑。
     if (customHost == null && defaultCDNService == CDNService.baseUrl) {
-      return urls.first;
+      return Pref.preferNonPcdn ? PcdnPicker.pick(urls) : urls.first;
     }
 
     if (defaultCDNService == CDNService.akamai &&
@@ -158,6 +188,12 @@ abstract final class VideoUtils {
 
     if (mcdnUpgcxcode != null) {
       final uri = Uri.parse(mcdnUpgcxcode);
+      // 【PCDN 直链不可换 host】实测：`*.mcdn.bilivideo.*:端口` 型直链的签名
+      // 与节点绑定，换任何 host（含 upos 镜像）都返回 403，表现为黑屏/加载失败。
+      // 之前这里无条件替换成用户选的 CDN，正是「视频加载不出来」的根因。
+      if (_isPcdnLockedUrl(mcdnUpgcxcode)) {
+        return mcdnUpgcxcode;
+      }
       if (customHost != null && _isReplaceableMediaHost(uri.host)) {
         return uri.replace(host: customHost).toString();
       }
@@ -201,6 +237,23 @@ abstract final class VideoUtils {
       }
     }
     return VideoDecodeFormatType.fromString(codecs.first);
+  }
+
+  /// 在已下发的档位里挑**最高的非 HDR** 档位。
+  ///
+  /// 用途：本项目播放链路只有 8bit 输出，HDR Vivid(129)/HDR 真彩(125)/
+  /// 杜比视界(126) 放出来会发灰偏色，所以「锁定最高画质」要跳过这三个。
+  /// 8K(127) 保留——它只是分辨率高，不是 HDR。
+  ///
+  /// 返回值保证出现在 [videoList] 里；[videoList] 为空时返回 null。
+  static int? highestNonHdrQuality(List<VideoItem> videoList) {
+    if (videoList.isEmpty) return null;
+    // dash.video 已按 id 降序（转换层保证），第一条非 HDR 即最高非 HDR
+    for (final v in videoList) {
+      if (!PlayViewConverter.isHdrQuality(v.id)) return v.id;
+    }
+    // 全是 HDR（极罕见）：退回最高档，至少不会黑屏
+    return videoList.first.id;
   }
 
   static int _findAvailableVideoQuality(

@@ -7,6 +7,14 @@ abstract final class Constants {
   // 27eb53fc9058f8c3  移动端 Android
   // 4409e2ce8ffd12b8  HD版
   static const String appKey = 'dfca71928277209b';
+  /// 手机端 Android appkey/secret（与 BBDown 的 PhoneAppKey/PhoneAppSecret 相同）。
+  ///
+  /// 关键：只有**手机端签发**的 access_token 才能让 PlayView 下发 4K/1080P+；
+  /// HD 端（android_hd）签发的 token 服务端只给到 1080P。实测：
+  ///   HD token  + 任何指纹 → 最高 1080P
+  ///   手机 token + 手机指纹 → 4K / 1080P+ 全部带直链
+  static const String phoneAppKey = '783bbb7264451d82';
+  static const String phoneAppSec = '2653583c8873dea268ab9386918b1d65';
   // 59b43e04ad6965f34319062b478f83dd TV端
   static const String appSec = 'b5475a8825547a4fc26c7d518eaaa02e';
   // static const String thirdSign = '04224646d1fea004e79606d3b038c84a';

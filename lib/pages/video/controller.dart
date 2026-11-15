@@ -1184,6 +1184,19 @@ class VideoDetailController extends GetxController
       data = response;
       if (data.dash != null) await _supplementVideoQualities();
 
+      // 【锁定最高非 HDR 画质】
+      // 播放器只有 8bit 输出，HDR Vivid/真彩/杜比视界 会发灰，因此默认档位
+      // 直接取「已下发的最高非 HDR 档」（4K 优于此）。用户手动改画质后
+      // cacheVideoQa 已被设置，这里不再覆盖。
+      if (Pref.lockHighestQuality && data.dash?.video?.isNotEmpty == true) {
+        final highest = VideoUtils.highestNonHdrQuality(data.dash!.video!);
+        if (highest != null &&
+            plPlayerController.cacheVideoQa != null &&
+            VideoQuality.isHdrQuality(plPlayerController.cacheVideoQa!)) {
+          plPlayerController.cacheVideoQa = highest;
+        }
+      }
+
       languages.value = data.language?.items;
       currLang.value = data.curLanguage;
 

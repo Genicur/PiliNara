@@ -636,6 +636,13 @@ abstract final class Api {
   static const getTVCode =
       '${HttpString.passBaseUrl}/x/passport-tv-login/qrcode/auth_code';
 
+  /// 申请二维码：aisee.tv 域（与 BBDown 的 TvQrCodeAuth 一致）
+  ///
+  /// 手机端 appkey 走 passport.bilibili.com 会返回 -400/风控；
+  /// BBDown 实测该端点用 aisee.tv 域才能签发手机端 token。
+  static const getTVCodeAisee =
+      'https://passport.snm0516.aisee.tv/x/passport-tv-login/qrcode/auth_code';
+
   ///扫码登录（TV端）
   static const qrcodePoll =
       '${HttpString.passBaseUrl}/x/passport-tv-login/qrcode/poll';

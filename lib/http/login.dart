@@ -54,12 +54,92 @@ abstract final class LoginHttp {
     }
   }
 
-  static Future codePoll(String authCode) async {
-    final params = {
-      'auth_code': authCode,
-      'local_id': '0',
+  /// 手机端扫码登录：拿到的 access_token 才能解锁 PlayView 的 4K 等档位。
+  ///
+  /// 与 [getHDcode] 的区别只在 appkey 与 mobi_app：这里用手机端 appkey
+  /// (`Constants.phoneAppKey`) 且 `mobi_app=android`，服务端据此签发手机端 token。
+
+  /// 手机端扫码登录。
+  ///
+  /// 注意：3 参数版（local_id/platform/mobi_app）在 2026-11 前后已失效，
+  /// 服务端返回 -400 请求错误；必须用下面这套完整参数（与 BBDown
+  /// \`Login.NewLoginParams\` 一致），且**轮询要复用同一套参数**。
+  static Map<String, dynamic>? _phoneLoginParams;
+
+  @pragma('vm:notify-debugger-on-exception')
+  static Future<LoadingState<({String authCode, String url})>>
+  getPhoneCode() async {
+    final deviceId = Utils.generateRandomString(20);
+    final buvid = Utils.generateRandomString(37);
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final fingerprint =
+        '${now.year}${two(now.month)}${two(now.day)}'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}'
+        '${now.millisecond.toString().padLeft(3, '0')}'
+        '${Utils.generateRandomString(45)}';
+    final params = <String, dynamic>{
+      'auth_code': '',
+      'bili_local_id': deviceId,
+      'build': '102801',
+      'buvid': buvid,
+      'channel': 'master',
+      'device': 'OnePlus',
+      'device_id': deviceId,
+      'device_name': 'OnePlus7TPro',
+      'device_platform': 'Android10OnePlusHD1910',
+      'fingerprint': fingerprint,
+      'guid': buvid,
+      'local_fingerprint': fingerprint,
+      'local_id': buvid,
+      'mobi_app': 'android',
+      'networkstate': 'wifi',
+      'platform': 'android',
+      'sys_ver': '29',
     };
-    AppSign.appSign(params);
+    AppSign.appSign(
+      params,
+      appkey: Constants.phoneAppKey,
+      appsec: Constants.phoneAppSec,
+    );
+    final res = await Request().post(
+      'https://passport.snm0516.aisee.tv/x/passport-tv-login/qrcode/auth_code',
+      queryParameters: params,
+    );
+    if (res.data['code'] == 0) {
+      try {
+        final Map<String, dynamic> data = res.data['data'];
+        _phoneLoginParams = Map<String, dynamic>.from(params)
+          ..['auth_code'] = data['auth_code'];
+        return Success((authCode: data['auth_code'], url: data['url']));
+      } catch (e, s) {
+        return Error('\$e\n\n\$s');
+      }
+    }
+    return Error(res.data['message']);
+  }
+
+  static Future codePoll(String authCode, {bool phone = false}) async {
+    final Map<String, dynamic> params;
+    if (phone) {
+      // 复用申请二维码时的整套参数（BBDown 的做法）。
+      // 只传 auth_code + local_id 服务端不认这个会话，会一直返回「尚未确认」。
+      final base = _phoneLoginParams;
+      if (base == null) {
+        return {'status': false, 'code': -1, 'msg': '请先刷新二维码'};
+      }
+      params = Map<String, dynamic>.from(base)
+        ..['auth_code'] = authCode
+        ..remove('sign');
+      AppSign.appSign(
+        params,
+        appkey: Constants.phoneAppKey,
+        appsec: Constants.phoneAppSec,
+      );
+    } else {
+      params = {'auth_code': authCode, 'local_id': '0'};
+      AppSign.appSign(params);
+    }
     final res = await Request().post(Api.qrcodePoll, queryParameters: params);
     return {
       'status': res.data['code'] == 0,

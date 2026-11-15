@@ -56,11 +56,22 @@ abstract final class GrpcReq {
     GeneratedMessage request,
     T Function(Uint8List) grpcParser, {
     bool isolate = false,
+    Map<String, String>? grpcHeaders,
   }) async {
     final response = await Request().post<Uint8List>(
       HttpString.appBaseUrl + url,
       data: compressProtobuf(request.writeToBuffer()),
-      options: options,
+      // 请求级 gRPC 指纹（如 PlayView 需要的手机端指纹）必须覆盖拦截器注入的
+      // 全局指纹（HD 端 android_hd/build 2001100），否则服务端只下发 1080P。
+      //
+      // 注意：**不能**写进 headers——AccountManager 拦截器在之后运行，
+      // 会用 `headers.addAll(account.grpcHeaders)` 把这里的内容覆盖掉。
+      // 因此改放 extra 里的标记键，由拦截器识别并优先采用。
+      options: grpcHeaders == null
+          ? options
+          : options.copyWith(
+              extra: {...?options.extra, 'grpcHeaders': grpcHeaders},
+            ),
     );
 
     if (response.data case final Map map) {

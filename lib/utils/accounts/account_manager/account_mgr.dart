@@ -58,7 +58,14 @@ class AccountManager extends Interceptor {
     final isApp = path.startsWith(HttpString.appBaseUrl);
 
     if (isApp && options.responseType == ResponseType.bytes) {
+      // 请求级指纹优先（如 PlayView 需要手机端指纹）。
+      // 全局 grpcHeaders 是 HD 端（android_hd / build 2001100），
+      // 用它请求 PlayView 时服务端只会下发 1080P，拿不到 4K。
+      final override = options.extra?['grpcHeaders'];
       options.headers.addAll(account.grpcHeaders);
+      if (override is Map<String, String>) {
+        options.headers.addAll(override);
+      }
       return handler.next(options);
     }
 

@@ -55,6 +55,24 @@ List<SettingsModel> get videoSettings => [
       ),
     ),
   ),
+  const SwitchModel(
+    title: '锁定最高非 HDR 画质',
+    subtitle:
+        '默认档位取已下发的最高画质（4K / 1080P+ 等），跳过 HDR Vivid、'
+        'HDR 真彩、杜比视界（8bit 播放链路放 HDR 会发灰偏色）',
+    leading: Icon(Icons.high_quality_outlined),
+    setKey: SettingBoxKey.lockHighestQuality,
+    defaultVal: true,
+  ),
+  const SwitchModel(
+    title: '优先非 PCDN 节点',
+    subtitle:
+        'PCDN 节点速度取决于当时有多少人在做种，冷门视频会慢到卡顿；'
+        '开启后优先选择官方 upos 节点',
+    leading: Icon(Icons.speed_outlined),
+    setKey: SettingBoxKey.preferNonPcdn,
+    defaultVal: true,
+  ),
   NormalModel(
     title: 'CDN 设置',
     leading: const Icon(MdiIcons.cloudPlusOutline),

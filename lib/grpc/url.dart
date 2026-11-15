@@ -14,6 +14,9 @@ abstract final class GrpcUrl {
   static const likeList = '$dynV2/LikeList';
   static const repostList = '$dynV2/RepostList';
 
+  // playurl（APP 通道取流，可拿到 4K/1080P+ 等非 Web 通道档位）
+  static const playView = '/bilibili.app.playurl.v1.PlayURL/PlayView';
+
   // danmaku
   static const dmSegMobile = '/bilibili.community.service.dm.v1.DM/DmSegMobile';
   static const dmView = '/bilibili.community.service.dm.v1.DM/DmView';

@@ -5,6 +5,7 @@ import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/assets.dart';
+import 'package:PiliPlus/http/bili_media_headers.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -1284,6 +1285,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         ...buffer,
       'video-rotate': ?rotate?.toString(),
     };
+
+    // 【请求头随直链来源切换】APP 通道直链必须用 `Mozilla/5.0` 且不带 Referer，
+    // Web 通道直链必须带 Referer；UA/Referer 是播放器级状态，只能设一组。
+    // 必须显式重设，否则会残留上一条视频的头（mpv 的 referrer 是播放器级状态）。
+    if (dataSource is NetworkSource && !isLive) {
+      final (ua, referer) = BiliMediaHeaders.forPlayer(
+        dataSource.videoSource,
+      );
+      player.setMediaHeader(userAgent: ua, referer: referer);
+    } else {
+      player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
+    }
 
     String video = dataSource.videoSource;
     if (dataSource.audioSource case final audio? when (audio.isNotEmpty)) {

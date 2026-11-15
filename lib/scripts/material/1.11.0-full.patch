@@ -80,6 +80,17 @@
  
      return MergeSemantics(child: result);
    }
+--- a/lib/src/generated/bottom_sheet_defaults_m3.g.dart
++++ b/lib/src/generated/bottom_sheet_defaults_m3.g.dart
+@@ -6,6 +6,8 @@
+ // Design token database by the script:
+ //   packages/material_ui/tool/gen_defaults/bin/gen_defaults.dart.
+ part of '../bottom_sheet.dart';
++
++typedef BottomSheetDefaultsM3 = _BottomSheetDefaultsM3;
+ 
+ class _BottomSheetDefaultsM3 extends BottomSheetThemeData {
+   _BottomSheetDefaultsM3(this.context)
 --- a/lib/src/navigation_drawer.dart
 +++ b/lib/src/navigation_drawer.dart
 @@ -75,7 +75,10 @@

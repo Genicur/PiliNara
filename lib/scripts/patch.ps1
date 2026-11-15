@@ -241,7 +241,8 @@ $PubCacheDir = "~/.pub-cache"
 
 switch ($platform.ToLower()) {
     "android" {
-        $patches_material += $BottomSheetAndroidPatchMaterial
+        # bottom_sheet_android.patch 的改动（gestureSettings）已并入 1.11.0-full.patch，
+        # 此处不再追加 —— 否则同一文件被改两次，第二个补丁必然冲突。
     }
     "ios" {
         $patches_material += $BottomSheetIOSFlutterMaterialPatchMaterial

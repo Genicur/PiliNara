@@ -187,12 +187,22 @@ foreach ($revert in $reverts) {
 }
 
 foreach ($patch in $patches) {
+    # 幂等：补丁可能因 workflow 重跑而重复应用（例如 newlibmpv 流程里
+    # pub get 之后需要重新打一遍）。已应用过的直接跳过，而不是报错。
     git apply "$env:GITHUB_WORKSPACE/$patch"
     if ($LASTEXITCODE -eq 0) {
         Write-Host "$patch applied"
-    } else {
-        throw "$LASTEXITCODE"
+        continue
     }
+
+    git apply -R --check "$env:GITHUB_WORKSPACE/$patch" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "$patch already applied, skipped"
+        continue
+    }
+
+    Write-Host "$patch FAILED and is not already applied"
+    throw "$LASTEXITCODE"
 }
 
 Set-Location $env:GITHUB_WORKSPACE

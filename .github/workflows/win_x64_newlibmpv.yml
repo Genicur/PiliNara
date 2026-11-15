@@ -45,11 +45,18 @@ jobs:
         run: lib/scripts/patch.ps1 windows
 
       # 重新指向 media-kit 的 upstream 分支并回退 ee148aa 的播放器改动（新版 libmpv）
+      #
+      # 注意顺序：`flutter pub get` 会重新解压 material_ui / cupertino_ui 等包，
+      # 把上一层 Apply Patch 打好的补丁全部覆盖掉 —— 表现就是尽管日志显示
+      # "material_ui ... 1.11.0-full.patch applied"，编译仍报
+      #   The method 'BottomSheetDefaultsM3' isn't defined
+      # 因此这里必须先 pub get（让依赖落定），再重新打一遍框架补丁。
       - name: Apply NewLibmpv Patch & update dependencies
         shell: pwsh
         run: |
           git apply lib/scripts/newlibmpv.patch
           flutter pub get
+          lib/scripts/patch.ps1 windows
 
       - name: Build Windows
         run: |

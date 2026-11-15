@@ -217,8 +217,16 @@ $RefreshIndicatorPatchMaterial = "lib/scripts/material/refresh_indicator.patch"
 
 $TabsPatchMaterial = "lib/scripts/material/tabs.patch"
 
+# 注意：scaffold.patch（$ScaffoldPatchMaterial）不在此列表。
+#
+# material_ui 1.11.0 已经把该补丁的全部改动收编上游，逐项核对均无需再打：
+#   BottomSheetState typedef / 泛型 _BottomSheetState / childKey getter
+#   handleDragStart·Update·End 公开化 / StandardBottomSheetState typedef
+#   泛型 _StandardBottomSheetState / onDragStart:handleDragStart
+#   isLocalHistoryEntry getter
+# 强行 apply 会 "patch does not apply" 并中断构建。
 $patches_material = @($ModalBarrierPatchMaterial, $NavigationDrawerPatchMaterial, $PopupMenuPatchMaterial,
-                    $FABPatchMaterial, $TextFieldPatchMaterial, $ScaffoldPatchMaterial, $RefreshIndicatorPatchMaterial,
+                    $FABPatchMaterial, $TextFieldPatchMaterial, $RefreshIndicatorPatchMaterial,
                     $TabsPatchMaterial)
 
 $PubCacheDir = "~/.pub-cache"

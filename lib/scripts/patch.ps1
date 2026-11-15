@@ -294,13 +294,26 @@ Get-ChildItem -Path "$env:GITHUB_WORKSPACE/lib/scripts/material" -Filter *.patch
 
 cd $MaterialUiDir.FullName
 
+# material_ui 的补丁是按旧版本编写的，新版（1.11.0）的部分改动上游已经收编
+# （例如 scaffold.patch 想改的 `onDragStart: handleDragStart` 现在本来就是对的）。
+# 这类补丁直接 apply 会 "patch does not apply" 并中断构建。
+# 处理方式：apply 失败时用 `git apply -R --check` 判断改动是否已存在，
+# 已存在则跳过；确实冲突才抛错。
 foreach ($patch in $patches_material) {
     git apply "$env:GITHUB_WORKSPACE/$patch"
     if ($LASTEXITCODE -eq 0) {
         Write-Host "$patch applied"
-    } else {
-        throw "$LASTEXITCODE"
+        continue
     }
+
+    git apply -R --check "$env:GITHUB_WORKSPACE/$patch" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "$patch already applied upstream, skipped"
+        continue
+    }
+
+    Write-Host "$patch FAILED and is not already applied"
+    throw "$LASTEXITCODE"
 }
 
 $BottomSheetIOSFlutterPatchCupertino = "lib/scripts/cupertino/bottom_sheet_ios_flutter.patch"

@@ -1,0 +1,447 @@
+--- a/lib/src/bottom_sheet.dart
++++ b/lib/src/bottom_sheet.dart
+@@ -258,8 +258,11 @@
+   }
+ }
+ 
+-class _BottomSheetState extends State<BottomSheet> {
++typedef BottomSheetState<T extends BottomSheet> = _BottomSheetState<T>;
++
++class _BottomSheetState<T extends BottomSheet> extends State<T> {
+   final GlobalKey _childKey = GlobalKey(debugLabel: 'BottomSheet child');
++  GlobalKey get childKey => _childKey;
+ 
+   double get _childHeight {
+     final renderBox = _childKey.currentContext!.findRenderObject()! as RenderBox;
+@@ -270,14 +273,14 @@
+ 
+   Set<WidgetState> dragHandleStates = <WidgetState>{};
+ 
+-  void _handleDragStart(DragStartDetails details) {
++  void handleDragStart(DragStartDetails details) {
+     setState(() {
+       dragHandleStates.add(WidgetState.dragged);
+     });
+     widget.onDragStart?.call(details);
+   }
+ 
+-  void _handleDragUpdate(DragUpdateDetails details) {
++  void handleDragUpdate(DragUpdateDetails details) {
+     assert(
+       (widget.enableDrag || (widget.showDragHandle ?? false)) && widget.animationController != null,
+       "'BottomSheet.animationController' cannot be null when 'BottomSheet.enableDrag' or 'BottomSheet.showDragHandle' is true. "
+@@ -289,7 +292,7 @@
+     widget.animationController!.value -= details.primaryDelta! / _childHeight;
+   }
+ 
+-  void _handleDragEnd(DragEndDetails details) {
++  void handleDragEnd(DragEndDetails details) {
+     assert(
+       (widget.enableDrag || (widget.showDragHandle ?? false)) && widget.animationController != null,
+       "'BottomSheet.animationController' cannot be null when 'BottomSheet.enableDrag' or 'BottomSheet.showDragHandle' is true. "
+@@ -381,9 +384,9 @@
+       // no need to add it.
+       if (!widget.enableDrag) {
+         dragHandle = _BottomSheetGestureDetector(
+-          onVerticalDragStart: _handleDragStart,
+-          onVerticalDragUpdate: _handleDragUpdate,
+-          onVerticalDragEnd: _handleDragEnd,
++          onVerticalDragStart: handleDragStart,
++          onVerticalDragUpdate: handleDragUpdate,
++          onVerticalDragEnd: handleDragEnd,
+           child: dragHandle,
+         );
+       }
+@@ -425,9 +428,9 @@
+     return !widget.enableDrag
+         ? bottomSheet
+         : _BottomSheetGestureDetector(
+-            onVerticalDragStart: _handleDragStart,
+-            onVerticalDragUpdate: _handleDragUpdate,
+-            onVerticalDragEnd: _handleDragEnd,
++            onVerticalDragStart: handleDragStart,
++            onVerticalDragUpdate: handleDragUpdate,
++            onVerticalDragEnd: handleDragEnd,
+             child: bottomSheet,
+           );
+   }
+--- a/lib/src/floating_action_button.dart
++++ b/lib/src/floating_action_button.dart
+@@ -623,9 +623,9 @@
+       result = Tooltip(message: tooltip, child: result);
+     }
+ 
+-    if (heroTag != null) {
+-      result = Hero(tag: heroTag!, child: result);
+-    }
++    // if (heroTag != null) {
++    //   result = Hero(tag: heroTag!, child: result);
++    // }
+ 
+     return MergeSemantics(child: result);
+   }
+--- a/lib/src/navigation_drawer.dart
++++ b/lib/src/navigation_drawer.dart
+@@ -75,7 +75,10 @@
+     this.onDestinationSelected,
+     this.selectedIndex = 0,
+     this.tilePadding = const EdgeInsets.symmetric(horizontal: 12.0),
++    this.flex = 1,
+   });
++
++  final int flex;
+ 
+   /// The background color of the [Material] that holds the [NavigationDrawer]'s
+   /// contents.
+@@ -200,6 +203,7 @@
+           children: <Widget>[
+             ?header,
+             Expanded(
++              flex: flex,
+               child: Material(
+                 type: MaterialType.transparency,
+                 child: ListView(children: wrappedChildren),
+@@ -417,7 +421,7 @@
+       child: _NavigationDestinationSemantics(
+         child: SizedBox(
+           height: navigationDrawerTheme.tileHeight ?? defaults.tileHeight,
+-          child: inkWell,
++          child: Material(type: MaterialType.transparency, child: inkWell),
+         ),
+       ),
+     );
+--- a/lib/src/popup_menu.dart
++++ b/lib/src/popup_menu.dart
+@@ -454,6 +454,11 @@
+       final isDark = theme.brightness == Brightness.dark;
+       item = IconTheme.merge(
+         data: IconThemeData(opacity: isDark ? 0.5 : 0.38),
++        child: item,
++      );
++    } else {
++      item = IconTheme.merge(
++        data: IconThemeData(color: style.color),
+         child: item,
+       );
+     }
+@@ -1022,6 +1027,9 @@
+ 
+   @override
+   final String barrierLabel;
++
++  @override
++  bool get isMenu => true;
+ 
+   @override
+   Widget buildPage(
+--- a/lib/src/progress_indicator.dart
++++ b/lib/src/progress_indicator.dart
+@@ -1311,6 +1311,7 @@
+ 
+   @override
+   void paint(Canvas canvas, Size size) {
++    if (size == .zero) return;
+     super.paint(canvas, size);
+     if (arrowheadScale > 0.0) {
+       paintArrowhead(canvas, size);
+--- a/lib/src/scaffold.dart
++++ b/lib/src/scaffold.dart
+@@ -3474,7 +3474,9 @@
+ class ScaffoldFeatureController<T extends Widget, U> {
+   const ScaffoldFeatureController._(this._widget, this._completer, this.close, this.setState);
+   final T _widget;
++  T get widget => _widget;
+   final Completer<U> _completer;
++  Completer<U> get completer => _completer;
+ 
+   /// Completes when the feature controlled by this object is no longer visible.
+   Future<U> get closed => _completer.future;
+@@ -3485,6 +3487,9 @@
+   /// Mark the feature (e.g., bottom sheet or snack bar) as needing to rebuild.
+   final StateSetter? setState;
+ }
++
++typedef StandardBottomSheet = _StandardBottomSheet;
++typedef StandardBottomSheetState<T extends _StandardBottomSheet> = _StandardBottomSheetState<T>;
+ 
+ class _StandardBottomSheet extends StatefulWidget {
+   const _StandardBottomSheet({
+@@ -3523,7 +3528,7 @@
+   _StandardBottomSheetState createState() => _StandardBottomSheetState();
+ }
+ 
+-class _StandardBottomSheetState extends State<_StandardBottomSheet> {
++class _StandardBottomSheetState<T extends _StandardBottomSheet> extends State<T> {
+   ParametricCurve<double> animationCurve = _standardBottomSheetCurve;
+ 
+   @override
+@@ -3541,7 +3546,7 @@
+   }
+ 
+   @override
+-  void didUpdateWidget(_StandardBottomSheet oldWidget) {
++  void didUpdateWidget(T oldWidget) {
+     super.didUpdateWidget(oldWidget);
+     assert(widget.animationController == oldWidget.animationController);
+   }
+@@ -3551,12 +3556,12 @@
+     widget.onClosing?.call();
+   }
+ 
+-  void _handleDragStart(DragStartDetails details) {
++  void handleDragStart(DragStartDetails details) {
+     // Allow the bottom sheet to track the user's finger accurately.
+     animationCurve = Curves.linear;
+   }
+ 
+-  void _handleDragEnd(DragEndDetails details, {bool? isClosing}) {
++  void handleDragEnd(DragEndDetails details, {bool? isClosing}) {
+     // Allow the bottom sheet to animate smoothly from its current position.
+     animationCurve = Split(widget.animationController.value, endCurve: _standardBottomSheetCurve);
+   }
+@@ -3617,8 +3622,8 @@
+             animationController: widget.animationController,
+             enableDrag: widget.enableDrag,
+             showDragHandle: widget.showDragHandle,
+-            onDragStart: _handleDragStart,
+-            onDragEnd: _handleDragEnd,
++            onDragStart: handleDragStart,
++            onDragEnd: handleDragEnd,
+             onClosing: widget.onClosing!,
+             // Extends the Material behind the keyboard. Always present, so the
+             // content keeps its state when the keyboard shows or hides.
+@@ -3658,7 +3663,17 @@
+     this._isLocalHistoryEntry,
+   ) : super._();
+ 
++  const PersistentBottomSheetController(
++    super.widget,
++    super.completer,
++    super.close,
++    StateSetter super.setState,
++    this._isLocalHistoryEntry,
++  ) : super._();
++
+   final bool _isLocalHistoryEntry;
++
++  bool get isLocalHistoryEntry => _isLocalHistoryEntry;
+ }
+ 
+ enum _ScaffoldAspect { geometry, hasDrawer, drawerExpanded, endDrawerExpanded }
+--- a/lib/src/tabs.dart
++++ b/lib/src/tabs.dart
+@@ -9,7 +9,7 @@
+ import 'dart:ui' show SemanticsRole, lerpDouble;
+ 
+ import 'package:flutter/foundation.dart';
+-import 'package:flutter/gestures.dart' show DragStartBehavior;
++import 'package:flutter/gestures.dart' show DragStartBehavior, HorizontalDragGestureRecognizer;
+ import 'package:flutter/rendering.dart';
+ import 'package:flutter/widgets.dart';
+ 
+@@ -355,11 +355,15 @@
+   }
+ }
+ 
++typedef TabBarLayoutCallback = _LayoutCallback;
++
+ typedef _LayoutCallback = void Function(
+   List<double> xOffsets,
+   TextDirection textDirection,
+   double width,
+ );
++
++typedef TabLabelBarRenderer = _TabLabelBarRenderer;
+ 
+ class _TabLabelBarRenderer extends RenderFlex {
+   _TabLabelBarRenderer({
+@@ -478,6 +482,8 @@
+   }
+ }
+ 
++typedef IndicatorPainterNotifier = _IndicatorPainterNotifier;
++
+ // A ChangeNotifier for triggering repaints when async resources load.
+ class _IndicatorPainterNotifier extends ChangeNotifier {
+   void notify() {
+@@ -487,6 +493,8 @@
+   @override
+   String toString() => describeIdentity(this);
+ }
++
++typedef IndicatorPainter = _IndicatorPainter;
+ 
+ class _IndicatorPainter extends CustomPainter {
+   factory _IndicatorPainter({
+@@ -511,7 +519,7 @@
+     ///
+     /// The notifier is to trigger a repaint when asynchronous resources,
+     /// like images in the indicator [Decoration], are finished loading.
+-    return _IndicatorPainter._(
++    return _IndicatorPainter.builder(
+       controller: controller,
+       indicator: indicator,
+       indicatorSize: indicatorSize,
+@@ -530,7 +538,7 @@
+     );
+   }
+ 
+-  _IndicatorPainter._({
++  _IndicatorPainter.builder({
+     required this.controller,
+     required this.indicator,
+     required this.indicatorSize,
+@@ -1608,6 +1616,8 @@
+   State<TabBar> createState() => _TabBarState();
+ }
+ 
++typedef TabBarState = _TabBarState;
++
+ class _TabBarState extends State<TabBar> {
+   TabBarScrollController? _internalScrollController;
+   TabController? _controller;
+@@ -1780,6 +1790,40 @@
+     }
+   }
+ 
++ IndicatorPainter buildIndicator({
++    required TabController controller,
++    required Decoration indicator,
++    required TabBarIndicatorSize indicatorSize,
++    required List<GlobalKey> tabKeys,
++    required _IndicatorPainter? old,
++    required EdgeInsetsGeometry indicatorPadding,
++    required List<EdgeInsetsGeometry> labelPaddings,
++    Color? dividerColor,
++    double? dividerHeight,
++    required bool showDivider,
++    double? devicePixelRatio,
++    required TabIndicatorAnimation indicatorAnimation,
++    required TextDirection textDirection,
++    required double? minimumIndicatorWidth,
++  }) {
++    return _IndicatorPainter(
++      controller: controller,
++      minimumIndicatorWidth: minimumIndicatorWidth,
++      indicator: indicator,
++      indicatorSize: indicatorSize,
++      indicatorPadding: indicatorPadding,
++      tabKeys: tabKeys,
++      old: old,
++      labelPaddings: labelPaddings,
++      dividerColor: dividerColor,
++      dividerHeight: dividerHeight,
++      showDivider: showDivider,
++      devicePixelRatio: devicePixelRatio,
++      indicatorAnimation: indicatorAnimation,
++      textDirection: textDirection,
++    );
++  }
++
+   void _initIndicatorPainter() {
+     final ThemeData theme = Theme.of(context);
+     final TabBarThemeData tabBarTheme = TabBarTheme.of(context);
+@@ -1801,7 +1845,7 @@
+ 
+     _indicatorPainter = !_controllerIsValid
+         ? null
+-        : _IndicatorPainter(
++        : buildIndicator(
+             controller: _controller!,
+             indicator: _getIndicator(indicatorSize),
+             indicatorSize: indicatorSize,
+@@ -2032,6 +2076,7 @@
+   }
+ 
+   bool _debugTabAlignmentIsValid(TabAlignment tabAlignment) {
++    return true;
+     assert(() {
+       if (widget.isScrollable && tabAlignment == TabAlignment.fill) {
+         throw FlutterError('$tabAlignment is only valid for non-scrollable tab bars.');
+@@ -2043,6 +2088,28 @@
+       return true;
+     }());
+     return true;
++  }
++
++  void applyFillAlignment(
++    int index,
++    List<Widget> wrappedTabs,
++    TabAlignment effectiveTabAlignment,
++  ) {
++    if (!widget.isScrollable && effectiveTabAlignment == TabAlignment.fill) {
++      wrappedTabs[index] = Expanded(child: wrappedTabs[index]);
++    }
++  }
++
++  Widget buildTabLabelBar({
++    required TabBarLayoutCallback onPerformLayout,
++    required MainAxisSize mainAxisSize,
++    required List<Widget> children,
++  }) {
++    return _TabLabelBar(
++      onPerformLayout: onPerformLayout,
++      mainAxisSize: mainAxisSize,
++      children: children,
++    );
+   }
+ 
+   @override
+@@ -2200,9 +2267,7 @@
+         ),
+       );
+       wrappedTabs[index] = MergeSemantics(child: wrappedTabs[index]);
+-      if (!widget.isScrollable && effectiveTabAlignment == TabAlignment.fill) {
+-        wrappedTabs[index] = Expanded(child: wrappedTabs[index]);
+-      }
++      applyFillAlignment(index, wrappedTabs, effectiveTabAlignment);
+     }
+ 
+     Widget tabBar = Semantics(
+@@ -2220,7 +2285,7 @@
+           labelStyle: widget.labelStyle,
+           unselectedLabelStyle: widget.unselectedLabelStyle,
+           defaults: _defaults,
+-          child: _TabLabelBar(
++          child: buildTabLabelBar(
+             onPerformLayout: _saveTabOffsets,
+             mainAxisSize: effectiveTabAlignment == TabAlignment.fill
+                 ? MainAxisSize.max
+@@ -2317,7 +2382,16 @@
+     this.dragStartBehavior = DragStartBehavior.start,
+     this.viewportFraction = 1.0,
+     this.clipBehavior = Clip.hardEdge,
++    this.scrollDirection = Axis.horizontal,
++    this.hitTestBehavior = HitTestBehavior.opaque,
++    this.horizontalDragGestureRecognizer = HorizontalDragGestureRecognizer.new,
+   });
++
++  final Axis scrollDirection;
++
++  final HitTestBehavior hitTestBehavior;
++
++  final ValueGetter<HorizontalDragGestureRecognizer> horizontalDragGestureRecognizer;
+ 
+   /// This widget's selection and animation state.
+   ///
+@@ -2620,6 +2694,9 @@
+         dragStartBehavior: widget.dragStartBehavior,
+         clipBehavior: widget.clipBehavior,
+         controller: _pageController,
++        scrollDirection: widget.scrollDirection,
++        hitTestBehavior: widget.hitTestBehavior,
++        horizontalDragGestureRecognizer: widget.horizontalDragGestureRecognizer,
+         physics: widget.physics == null
+             ? const PageScrollPhysics().applyTo(const ClampingScrollPhysics())
+             : const PageScrollPhysics().applyTo(widget.physics),
+--- a/lib/src/text_field.dart
++++ b/lib/src/text_field.dart
+@@ -321,7 +321,7 @@
+     this.scrollPadding = const EdgeInsets.all(20.0),
+     this.dragStartBehavior = DragStartBehavior.start,
+     bool? enableInteractiveSelection,
+-    this.selectAllOnFocus,
++    this.selectAllOnFocus = false,
+     this.selectionControls,
+     this.onTap,
+     this.onTapAlwaysCalled = false,

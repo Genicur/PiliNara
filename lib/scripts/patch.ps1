@@ -217,17 +217,25 @@ $RefreshIndicatorPatchMaterial = "lib/scripts/material/refresh_indicator.patch"
 
 $TabsPatchMaterial = "lib/scripts/material/tabs.patch"
 
-# 注意：scaffold.patch（$ScaffoldPatchMaterial）不在此列表。
+# material_ui 补丁策略
+# ----------------
+# 原先这里是逐个 apply 单个 .patch 文件。这些补丁是按更早的 material_ui 写的，
+# 与 1.11.0 的上下文行号、代码形态都对不上，逐个打必然 "patch does not apply"。
 #
-# material_ui 1.11.0 已经把该补丁的全部改动收编上游，逐项核对均无需再打：
-#   BottomSheetState typedef / 泛型 _BottomSheetState / childKey getter
-#   handleDragStart·Update·End 公开化 / StandardBottomSheetState typedef
-#   泛型 _StandardBottomSheetState / onDragStart:handleDragStart
-#   isLocalHistoryEntry getter
-# 强行 apply 会 "patch does not apply" 并中断构建。
-$patches_material = @($ModalBarrierPatchMaterial, $NavigationDrawerPatchMaterial, $PopupMenuPatchMaterial,
-                    $FABPatchMaterial, $TextFieldPatchMaterial, $RefreshIndicatorPatchMaterial,
-                    $TabsPatchMaterial)
+# 改为：以官方 1.11.0 纯净包为基准，生成一份**完整的**统一 diff（1.11.0-full.patch），
+# 一次 apply。它覆盖项目实际需要的全部改动：
+#   bottom_sheet.dart          BottomSheetState typedef / 泛型状态类 / childKey
+#   scaffold.dart              StandardBottomSheet 公开化 / 控制器构造 /
+#                              isLocalHistoryEntry / 拖拽回调公开化
+#   tabs.dart                  minimumIndicatorWidth 参数贯通 / TabBarLayoutCallback
+#   text_field.dart            光标定制
+#   floating_action_button.dart / navigation_drawer.dart / popup_menu.dart
+#   progress_indicator.dart（refresh_indicator 依赖）
+#
+# 旧的单文件补丁保留在仓库中供对照，但不再参与构建。
+$MaterialFullPatch = "lib/scripts/material/1.11.0-full.patch"
+
+$patches_material = @($MaterialFullPatch)
 
 $PubCacheDir = "~/.pub-cache"
 

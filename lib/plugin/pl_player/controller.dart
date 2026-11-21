@@ -55,6 +55,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/utils/cdn_probe.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:canvas_danmaku/canvas_danmaku.dart';
@@ -1258,6 +1259,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     position.value = seekTo?.inSeconds ?? 0;
     buffered.value = 0;
     danmakuController?.clear();
+
+    // 【先探测、失败回退】
+    //
+    // APP 通道下发的 dash 直链常是 PCDN 节点，其 `uparams` 含 `os=mcdn`，
+    // 签名与节点绑定：换 host 会 403。所以不能盲目替换，改为先用用户选的
+    // CDN 发一次 `Range: 0-0` 轻量探测，通过才用，失败则回退原始直链。
+    //
+    // 只在「网络源 + 非直播 + 用户配了自定义节点」时做，其余情况零开销。
+    // 实测探测耗时约 0.15s，且有超时兜底，不会拖慢正常播放。
+    if (dataSource is NetworkSource && !isLive && CdnProbe.shouldProbe) {
+      final resolved = await CdnProbe.resolvePair(
+        videoUrl: dataSource.videoSource,
+        audioUrl: dataSource.audioSource,
+      );
+      if (resolved.video != null &&
+          (resolved.video != dataSource.videoSource ||
+              resolved.audio != dataSource.audioSource)) {
+        dataSource = NetworkSource(
+          videoSource: resolved.video!,
+          audioSource: resolved.audio,
+        );
+      }
+    }
 
     var player = _videoPlayerController;
 

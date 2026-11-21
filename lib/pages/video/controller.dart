@@ -952,7 +952,7 @@ class VideoDetailController extends GetxController
       ..buffered.value = 0;
 
     firstVideo = findVideoByQa(currentVideoQa.code, setCodecs: true);
-    videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+    videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls, allowProbe: true);
 
     /// 根据currentAudioQa 重新设置audioUrl
     if (currentAudioQa != null) {
@@ -960,7 +960,11 @@ class VideoDetailController extends GetxController
         (i) => i.id == currentAudioQa!.code,
         orElse: () => data.dash!.audio!.first,
       );
-      audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
+      audioUrl = VideoUtils.getCdnUrl(
+        firstAudio.playUrls,
+        isAudio: true,
+        allowProbe: true,
+      );
     }
 
     playerInit();
@@ -1302,7 +1306,7 @@ class VideoDetailController extends GetxController
       currentDecodeFormats = targetDecode;
       currentVideoQa.value = VideoQuality.fromCode(targetQuality);
       _setVideoHeight();
-      videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+      videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls, allowProbe: true);
 
       AudioItem? firstAudio;
       final audioList = dash.audio;
@@ -1311,7 +1315,11 @@ class VideoDetailController extends GetxController
           audioList,
           plPlayerController.cacheAudioQa,
         );
-        audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
+        audioUrl = VideoUtils.getCdnUrl(
+          firstAudio.playUrls,
+          isAudio: true,
+          allowProbe: true,
+        );
         currentAudioQa = AudioQuality.fromCode(firstAudio.id);
       } else {
         audioUrl = '';

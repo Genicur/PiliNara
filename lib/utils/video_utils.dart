@@ -47,6 +47,23 @@ abstract final class VideoUtils {
     return host.contains('.mcdn.bilivideo.');
   }
 
+  /// 把 [url] 的 host 换成 [host]，返回候选地址（不改动原对象）。
+  ///
+  /// 仅用于「先探测、失败回退」流程：调用方需要拿到一个可以单独请求的候选
+  /// 地址去验证可用性，而不是直接替换后交给播放器（换 host 常常 403）。
+  ///
+  /// 返回 null 表示该地址不该参与替换（非媒体 host、无 host 等）。
+  static String? hostReplaced(String url, String host) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty || host.isEmpty) {
+      return null;
+    }
+    if (!_isReplaceableMediaHost(uri.host)) {
+      return null;
+    }
+    return uri.replace(host: host).toString();
+  }
+
   static bool _isReplaceableMediaHost(String host) {
     final lower = host.toLowerCase();
     if (_blockedHostPrefix.hasMatch(lower)) {
@@ -95,6 +112,7 @@ abstract final class VideoUtils {
     String? customHost,
     bool applyCustomCDN = true,
     bool isAudio = false,
+    bool allowProbe = false,
   }) {
     // 【最优先：PCDN 直链一律不换 host】
     //
@@ -107,6 +125,22 @@ abstract final class VideoUtils {
     // `/upgcxcode/` 分支会走到 replace(host:)，替换照样发生。
     final first = urls.firstWhere((e) => e.isNotEmpty, orElse: () => '');
     if (first.isNotEmpty && _isPcdnLockedUrl(first)) {
+      // PCDN 直链的签名（uparams 含 os=mcdn）与节点绑定，换 host 会 403。
+      //
+      // 只有调用方明确表示「之后会做探测+回退」时才返回候选地址（[allowProbe]），
+      // 否则一律原样返回。这样下载、音频单曲等不做探测的路径不会被换成 403。
+      if (allowProbe) {
+        // defaultCDNService 形参可空（调用方未指定时才回落到全局设置），
+        // 因此这里必须显式处理 null，不能直接 .host。
+        final service = defaultCDNService ?? cdnService;
+        final target = customHost ?? service.host;
+        if (target != null && target.isNotEmpty) {
+          final candidate = hostReplaced(first, target);
+          if (candidate != null) {
+            return candidate;
+          }
+        }
+      }
       return first;
     }
 
